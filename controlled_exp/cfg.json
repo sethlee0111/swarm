@@ -1,0 +1,17 @@
+{
+    "dataset": "mnist",
+    "intervals": [50, 50, 50],
+    "local-set": [0,1],
+    "goal-set": [0,1,2,3,4],
+    "label-sets": [[2,3],[3,4,5],[4,5,6]],
+    "number-of-data-points": 120,
+    "noise-percentage": 50,
+    "strategies": {
+        "momentum": true,
+        "local": true,
+        "momentum-wo-decay": false,
+        "greedy-sim": true,
+        "greedy-no-sim": true
+    },
+    "pretrained-model": "test_base_2nn_mnist.pickle"
+}

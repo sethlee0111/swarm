@@ -1,0 +1,17 @@
+{
+    "dataset": "cifar",
+    "intervals": [50, 50, 50],
+    "local-set": [0,1],
+    "goal-set": [0,1,2,3,4],
+    "label-sets": [[2,3],[3,4,5],[4,5,6]],
+    "number-of-data-points": 180,
+    "noise-percentage": 50,
+    "strategies": {
+        "momentum": true,
+        "local": true,
+        "momentum-wo-decay": true,
+        "greedy-sim": true,
+        "greedy-no-sim": true
+    },
+    "pretrained-model": "../pretrained/pretrained_model_big_cnn_cifar_local_updates_epochs_100_data_20000_preprocess.pickle"
+}
