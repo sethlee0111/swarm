@@ -12,7 +12,6 @@ from data_process import get_sim_even
 import pickle
 import models
 import model_distance as md
-from hyperparams import ORIG_LR, KAPPA, OFFSET, APPLY_RATE
 from model_weight_utils import *
 
 def get_client_class(class_name):
@@ -43,7 +42,8 @@ class DelegationClient:
                 test_data_provider,
                 target_labels,
                 compile_config, 
-                train_config):
+                train_config,
+                hyperparams):
         """
         params
             model: function to get keras model
@@ -60,6 +60,7 @@ class DelegationClient:
         self._y_train_orig = y_train
         self.test_data_provider = test_data_provider
         self._num_classes = test_data_provider.num_classes
+        self._hyperparams = hyperparams
 
         ratio_per_label = 1./(len(target_labels))
         self._desired_data_dist = {}
@@ -202,14 +203,14 @@ class DelegationClient:
     def _get_model(self):
         model = self._model_fn()
         model.set_weights(self._weights)
-        self._compile_config['optimizer'] = self._opt_fn(lr=ORIG_LR)
+        self._compile_config['optimizer'] = self._opt_fn(lr=self._hyperparams['orig-lr'])
         model.compile(**self._compile_config)
         return model
 
     def _get_model_from_weights(self, weights):
         model = self._model_fn()
         model.set_weights(weights)
-        self._compile_config['optimizer'] = self._opt_fn(lr=ORIG_LR)
+        self._compile_config['optimizer'] = self._opt_fn(lr=self._hyperparams['orig-lr'])
         model.compile(**self._compile_config)
         return model
     
@@ -329,10 +330,10 @@ class AdvancedGreedyClient(SimularityDelegationClient):
     def delegate(self, other, epoch, iteration):
         for _ in range(iteration):
             drift = md.l2_distance_w(self._weights, self.init_weights)
-            xx = KAPPA*(-(drift-OFFSET))
+            xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
             lr_fac = np.exp(xx)/(np.exp(xx) + 1)
             self.lr_fac_min = min(self.lr_fac_min, lr_fac)
-            lr = self.lr_fac_min * ORIG_LR
+            lr = self.lr_fac_min * self._hyperparams['orig-lr']
             remote_weights = self.fit_w_lr_to(other,1, lr)
             remote_grads = gradients(self._weights, remote_weights)
             fac = np.exp(-7 * (1-get_sim_even(self.desired_prob, list(other._local_data_dist.keys()))))
@@ -356,10 +357,10 @@ class MomentumClient(SimularityDelegationClient):
         if not self.decide_delegation(other):
             return
         drift = md.l2_distance_w(self._weights, self.init_weights)
-        xx = KAPPA*(-(drift-OFFSET))
+        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
         lr_fac = np.exp(xx)/(np.exp(xx) + 1)
         self.lr_fac_min = min(self.lr_fac_min, lr_fac)
-        lr = self.lr_fac_min * ORIG_LR
+        lr = self.lr_fac_min * self._hyperparams['orig-lr']
 
         new_weights = self.fit_w_lr_to(other, 1, lr)
         grads = gradients(self._weights, new_weights)
@@ -391,7 +392,7 @@ class MomentumClient(SimularityDelegationClient):
                 fac = np.exp(-7 * (1-get_sim_even(self.desired_prob, cc[0])))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
                 fac_sum += fac
-            agg_g = multiply_weights(agg_g, APPLY_RATE/(len(self._cache_comb)*(fac_sum)))
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate']/(len(self._cache_comb)*(fac_sum)))
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
@@ -416,11 +417,11 @@ class MomentumWithoutDecayClient(SimularityDelegationClient):
 
     def delegate(self, other, epoch, iteration=2):
         drift = md.l2_distance_w(self._weights, self.init_weights)
-        xx = KAPPA*(-(drift-OFFSET))
+        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
         lr_fac = np.exp(xx)/(np.exp(xx) + 1)
         lr_fac = 1
         self.lr_fac_min = min(self.lr_fac_min, lr_fac)
-        lr = self.lr_fac_min * ORIG_LR
+        lr = self.lr_fac_min * self._hyperparams['orig-lr']
 
         new_weights = self.fit_w_lr_to(other, 1, lr)
         grads = gradients(self._weights, new_weights)
@@ -452,7 +453,7 @@ class MomentumWithoutDecayClient(SimularityDelegationClient):
                 fac = np.exp(-7 * (1-get_sim_even(self.desired_prob, cc[0])))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
                 fac_sum += fac
-            agg_g = multiply_weights(agg_g, APPLY_RATE/(len(self._cache_comb)*(fac_sum)))
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate']/(len(self._cache_comb)*(fac_sum)))
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)

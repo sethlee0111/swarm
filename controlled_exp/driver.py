@@ -13,7 +13,6 @@ import copy
 import pickle
 import numpy as np
 from tqdm import tqdm
-from hyperparams import ORIG_LR, KAPPA, OFFSET, APPLY_RATE
 from get_dataset import get_mnist_dataset, get_cifar_dataset
 
 def main():
@@ -27,7 +26,7 @@ def main():
     parser.add_argument('--out', dest='out_file',
                         type=str, default='logs/log.pickle', help='log history output')
     parser.add_argument('--cfg', dest='config_file',
-                        type=str, default='test_cfg.json', help='name of the config file')
+                        type=str, default='configs/mnist_cfg.json', help='name of the config file')
     parser.add_argument('--draw_graph', dest='graph_file',
                         type=str, default=None, help='name of the output graph filename')               
 
@@ -40,11 +39,6 @@ def main():
     with open(parsed.config_file, 'rb') as f:
         config_json = f.read()
     config = json.loads(config_json)
-
-    ORIG_LR = config['initial-learning-rate']
-    KAPPA = config['kappa']
-    OFFSET = config['offset']
-    APPLY_RATE = config['apply-rate']
 
     if config['dataset'] == 'mnist':
         model_fn = custom_models.get_2nn_mnist_model
@@ -70,12 +64,13 @@ def main():
     # set params for building clients
     opt_fn = keras.optimizers.SGD
     compile_config = {'loss': 'mean_squared_error', 'metrics': ['accuracy']}
+    hyperparams = config['hyperparams']
     
     # initialize delegation_clients for simulation
     clients = {}
     i = 0
-    for k in parsed['strategies'].keys():
-        if parsed['strategies'][k]:
+    for k in config['strategies'].keys():
+        if config['strategies'][k]:
             client_class = get_client_class(k)
             if client_class == None:
                 print("strategy name {} not defined".format(k))
@@ -91,7 +86,8 @@ def main():
                             test_data_provider,
                             config['goal-set'],
                             compile_config,
-                            train_config)
+                            train_config,
+                            hyperparams)
             clients[k] = c
             i += 1
     
@@ -108,8 +104,9 @@ def main():
 
     # run simulation
     candidates = np.arange(0,10)
-    for i in tqdm(range(len(config['intervals']))):
-        for _ in range(config['intervals'][i]):
+    for i in range(len(config['intervals'])):
+        print('simulating range {} of {}'.format(i+1, len(config['intervals'])))
+        for _ in tqdm(range(config['intervals'][i])):
             # set labels
             rn = np.random.rand(1)
             if rn > config['noise-percentage']/100.0:  # not noise
@@ -134,7 +131,8 @@ def main():
                                             test_data_provider,
                                             config['goal-set'],
                                             compile_config,
-                                            train_config)
+                                            train_config,
+                                            hyperparams)
                 clients[ck].delegate(other, 1, 2)
                 hist = clients[ck].eval()
                 logs[ck]['loss'].append(hist[0])
@@ -150,7 +148,7 @@ def main():
         plt.legend(list(logs.keys()))
         plt.ylabel("accuracy")
         plt.xlabel("encounters")
-        plt.savefig('figs/' + parsed.graph_file)
+        plt.savefig(parsed.graph_file)
         plt.close()
         
 if __name__ == '__main__':

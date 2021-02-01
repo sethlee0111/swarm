@@ -1,5 +1,6 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+from hyperparams import OPTIMIZER
 import tensorflow.keras as keras
 from tensorflow.keras import backend as K
 from timeit import default_timer as timer
@@ -91,12 +92,16 @@ def main():
     enc_exp_config['delegation_duration'] = enc_config['train-duration']
     enc_exp_config['max_delegations'] = enc_config['max-delegations']
 
+    hyperparams = config['hyperparams']
+
     np.random.seed(parsed.rand_seed)  # for all the swarms to have the same client config
 
     test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, 800)
 
     test_swarms = []
     swarm_names = []
+
+    # OPTIMIZER = keras.optimizers.SGD
 
     orig_swarm = Swarm(model_fn,
                        keras.optimizers.SGD,
@@ -109,7 +114,8 @@ def main():
                        config['local-set-size'],
                        config['goal-set-size'],
                        config['local-data-size'],
-                       enc_exp_config
+                       enc_exp_config,
+                       hyperparams
                       )
 
     for k in config['strategies'].keys():
@@ -130,6 +136,7 @@ def main():
                     config['goal-set-size'],
                     config['local-data-size'],
                     enc_exp_config,
+                    hyperparams,
                     orig_swarm
                 )
             )
@@ -169,7 +176,7 @@ def main():
         plt.legend(list(processed_hists.keys()))
         plt.ylabel("acc")
         plt.xlabel("time")
-        plt.savefig('figs/' + parsed.graph_file)
+        plt.savefig(parsed.graph_file)
         plt.close()
 
 def get_accs_over_time(loaded_hist, key):

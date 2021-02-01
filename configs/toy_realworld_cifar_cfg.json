@@ -1,9 +1,9 @@
 {
-    "dataset": "mnist",
+    "dataset": "cifar",
     "mobility-model": "levy-walk",
     "client-num": 45,
     "local-set-size": 2,
-    "local-data-size": 180,
+    "local-data-size": 300,
     "goal-set-size": 5,
     "district-9": [[1,2], [3,4], [5,6],
                   [7,8], [9,0], [2,3],
@@ -17,7 +17,7 @@
         "greedy-sim": true,
         "greedy-no-sim": true
     },
-    "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
+    "pretrained-model": "pretrained/pretrained_model_big_cnn_cifar_local_updates_epochs_100_data_20000_preprocess.pickle",
     "pretrain-setup": {
         "learning-rate": 0.001,
         "data-size": 3600,
@@ -30,8 +30,11 @@
         "train-duration": 2,
         "max-delegations": 6
     },
-    "initial-learning-rate": 0.0001,
-    "kappa": 14,
-    "offset": 0.96,
-    "apply_rate": 1
+    "hyperparams" : {
+        "orig-lr": 0.0005,
+        "batch-size": 50,
+        "kappa": 7,
+        "offset": 0.96,
+        "apply-rate": 1
+    }
 }

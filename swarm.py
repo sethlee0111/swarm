@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow.keras as keras
-from hyperparams import OPTIMIZER, LOSS_FUNC, METRICS, BATCH_SIZE, SIGMA
 import pandas as pd
 from tensorflow.keras import backend as K
 import copy
@@ -25,7 +24,7 @@ class Swarm():
                  num_label_per_client,
                  num_req_label_per_client,
                  num_data_per_label_in_client,
-                 enc_exp_config, from_swarm=None):
+                 enc_exp_config, hyperparams, from_swarm=None):
         """
         enc_exp_config: dictionary for configuring encounter data based experiment
         [keys]
@@ -35,8 +34,8 @@ class Swarm():
             max_delegations: maximum delegation rounds
         """
         self.test_data_provider = test_data_provider
-        compile_config = {'loss': LOSS_FUNC, 'metrics': METRICS}
-        train_config = {'batch_size': BATCH_SIZE, 'shuffle': True}
+        compile_config = {'loss': 'mean_squared_error', 'metrics': ['accuracy']}
+        train_config = {'batch_size': hyperparams['batch-size'], 'shuffle': True}
 
         # self.train_data_provider = data_process.DataProvider(x_train, y_train)
         self.num_data_per_label_in_client = num_data_per_label_in_client
@@ -82,7 +81,8 @@ class Swarm():
                                     self.test_data_provider,
                                     target_labels,  # assume that required d.d == client d.d.
                                     compile_config,
-                                    train_config))
+                                    train_config,
+                                    hyperparams))
         else:
             self._clients = []
             for i in range(num_clients):
@@ -95,7 +95,8 @@ class Swarm():
                                     from_swarm.test_data_provider,
                                     list(from_swarm._clients[i]._desired_data_dist.keys()),  # assume that required d.d == client d.d.
                                     compile_config,
-                                    train_config))
+                                    train_config,
+                                    hyperparams))
         
         self.hist = {} # history per client over time
 
@@ -145,7 +146,7 @@ class Swarm():
         self._evaluate_all()
         self._initialize_last_times()
 
-        print("Start running simulation on {} indices".format(self.total_number_of_rows))
+        print("Start running simulation with {} indices".format(self.total_number_of_rows))
         start_time = datetime.datetime.now()
         # iterate encounters
         cur_t = 0 # current time
