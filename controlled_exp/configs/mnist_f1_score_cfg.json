@@ -1,0 +1,27 @@
+{
+    "dataset": "mnist",
+    "intervals": [100, 100, 100],
+    "local-set": [0,1],
+    "goal-set": [0,1,2,3,4],
+    "label-sets": [[2,3],[3,4,5],[4,5,6]],
+    "number-of-data-points": 180,
+    "noise-percentage": 50,
+    "strategies": {
+        "momentum": true,
+        "local": true,
+        "greedy-sim": true,
+        "greedy-no-sim": true
+    },
+    "pretrained-model": "../pretrained/test_base_2nn_mnist.pickle",
+    "hyperparams" : {
+        "orig-lr": 0.01,
+        "batch-size": 50,
+        "kappa": 7,
+        "offset": 0.96,
+        "apply-rate": 1,
+        "test-data-per-label": 800,
+        "evaluation-metrics": "f1-score-weighted",
+        "similarity-threshold": 0.2
+    },
+    "test-data-per-label": 800
+}

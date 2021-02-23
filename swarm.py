@@ -40,14 +40,18 @@ class Swarm():
         # self.train_data_provider = data_process.DataProvider(x_train, y_train)
         self.num_data_per_label_in_client = num_data_per_label_in_client
 
-        num_unknown_label_per_client = max(num_req_label_per_client-num_label_per_client, 0)
+        num_unknown_label_per_client = max(num_req_label_per_client - num_label_per_client, 0)
 
         if from_swarm == None:
             self._clients = []
             # prepare data for quadrants
-            self.local_data_per_quad = [[1,2], [3,4], [5,6],
-                                        [7,8], [9,0], [2,3],
-                                        [4,5], [6,7], [8,9]]
+            # if enc_exp_config['mobility_model'] == 'levy_walk':
+            self.local_data_per_quad = enc_exp_config['local_data_per_quad']
+            # elif enc_exp_config['mobility_model'] == 'sigcomm2009':
+            #     pass
+            # else:
+            #     raise ValueError('invalid mobility model: {}'.format(enc_exp_config['mobility_model']))
+            
             # for i in range(9):
             #     candidates = np.arange(0,10)
             #     np.random.shuffle(candidates)
@@ -60,7 +64,10 @@ class Swarm():
                 # num_starts = np.arange(0, num_classes - num_label_per_client)
                 # np.random.shuffle(num_starts)
                 # local_data_labels = np.arange(num_starts[0], num_starts[0]+5)
+                # if enc_exp_config['mobility_model'] == 'levy_walk':
                 local_data_labels = self.local_data_per_quad[(int)(i / (int)(num_clients/9))]
+                # elif enc_exp_config['mobility_model'] == 'sigcomm2009':
+                    
 
                 # put random labels for required data
                 target_labels_not_in_train_set = np.setdiff1d(np.arange(test_data_provider.num_classes),
@@ -157,6 +164,8 @@ class Swarm():
             # only pairs of clients can exchange in a place
             c1_idx = (int)(row[CLIENT1])
             c2_idx = (int)(row[CLIENT2])
+            if c1_idx >= len(self._clients) or c2_idx >= len(self._clients):
+                continue
             c1 = self._clients[c1_idx]
             c2 = self._clients[c2_idx]
             if self.last_end_time[c1_idx] > cur_t or self.last_end_time[c2_idx] > cur_t:
@@ -176,16 +185,16 @@ class Swarm():
                 self.hist['total_delegations'] += 1
                 hist = c1.eval()
                 self.hist['clients'][c1_idx].append((self.last_end_time[c1_idx], hist))
-                self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1]))
-                self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
+                # self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1])) # @TODO this won't work with eval_f1_score
+                # self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
             if c2_delegate_to_c1:
                 # model delegation
                 c2.delegate(c1, 1, delegations)
                 self.hist['total_delegations'] += 1
                 hist = c2.eval()
                 self.hist['clients'][c2_idx].append((self.last_end_time[c2_idx], hist)) 
-                self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1]))
-                self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
+                # self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1]))
+                # self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
                 
             # self.hist['time_steps'].append(end_t)
 

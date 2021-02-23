@@ -13,7 +13,11 @@ import copy
 import pickle
 import numpy as np
 from tqdm import tqdm
-from get_dataset import get_mnist_dataset, get_cifar_dataset
+from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
+
+# hyperparams for uci dataset
+SLIDING_WINDOW_LENGTH = 24
+SLIDING_WINDOW_STEP = 12
 
 def main():
     """
@@ -28,12 +32,17 @@ def main():
     parser.add_argument('--cfg', dest='config_file',
                         type=str, default='configs/mnist_cfg.json', help='name of the config file')
     parser.add_argument('--draw_graph', dest='graph_file',
-                        type=str, default=None, help='name of the output graph filename')               
+                        type=str, default=None, help='name of the output graph filename')
+    parser.add_argument('--seed', dest='seed',
+                    type=int, default=0, help='use pretrained weights')              
 
     parsed = parser.parse_args()
 
     if parsed.config_file == None or parsed.out_file == None:
         print('Config file and output diretory has to be specified. Run \'python driver.py -h\' for help/.')
+
+    np.random.seed(parsed.seed)
+    tf.compat.v1.set_random_seed(parsed.seed)
 
     # load config file
     with open(parsed.config_file, 'rb') as f:
@@ -48,8 +57,14 @@ def main():
         model_fn = custom_models.get_big_cnn_cifar_model
         x_train, y_train_orig, x_test, y_test_orig = get_cifar_dataset()
 
+    elif config['dataset'] == 'opportunity-uci':
+        model_fn = custom_models.get_deep_conv_lstm_model
+        x_train, y_train_orig, x_test, y_test_orig = get_opp_uci_dataset('../data/opportunity-uci/oppChallenge_gestures.data',
+                                                                         SLIDING_WINDOW_LENGTH,
+                                                                         SLIDING_WINDOW_STEP)
+
     train_data_provider = dp.DataProvider(x_train, y_train_orig)
-    test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, 800)
+    test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, config['test-data-per-label'])
 
     # get local dataset for clients
     client_label_conf = {}
@@ -95,12 +110,17 @@ def main():
     logs = {}
     for ck in clients.keys():
         logs[ck] = {}
-        logs[ck]['accuracy'] = []
-        logs[ck]['loss'] = []
-
         hist = clients[ck].eval()
-        logs[ck]['loss'].append(hist[0])
-        logs[ck]['accuracy'].append(hist[1])
+        if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
+            logs[ck]['accuracy'] = []
+            logs[ck]['loss'] = []
+            logs[ck]['loss'].append(hist[0])
+            logs[ck]['accuracy'].append(hist[1])
+        elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
+            logs[ck]['f1-score'] = []
+            logs[ck]['f1-score'].append(hist)
+        else:
+            ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
     # run simulation
     candidates = np.arange(0,10)
@@ -135,19 +155,38 @@ def main():
                                             hyperparams)
                 clients[ck].delegate(other, 1, 2)
                 hist = clients[ck].eval()
-                logs[ck]['loss'].append(hist[0])
-                logs[ck]['accuracy'].append(hist[1])
+                if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
+                    logs[ck]['loss'].append(hist[0])
+                    logs[ck]['accuracy'].append(hist[1])
+                elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
+                    logs[ck]['f1-score'].append(hist)
+                else:
+                    ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
     with open(parsed.out_file, 'wb') as handle:
         pickle.dump(logs, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
+    if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
+        key = 'accuracy'
+    elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
+        key = 'f1-score'
+    
     if parsed.graph_file != None:
         import matplotlib.pyplot as plt
+        import matplotlib
+
+        matplotlib.rcParams['pdf.fonttype'] = 42
+        matplotlib.rcParams['ps.fonttype'] = 42
+
         for k in logs.keys():
-            plt.plot(np.arange(0, len(logs[k]['accuracy'])), np.array(logs[k]['accuracy']), lw=1.2)
+            plt.plot(np.arange(0, len(logs[k][key])), np.array(logs[k][key]), lw=1.2)
         plt.legend(list(logs.keys()))
-        plt.ylabel("accuracy")
-        plt.xlabel("encounters")
+        if key == 'accuracy':
+            y_label = 'Accuracy'
+        elif key == 'f1-score':
+            y_label = 'F1-score'
+        plt.ylabel(y_label)
+        plt.xlabel("Encounters")
         plt.savefig(parsed.graph_file)
         plt.close()
         

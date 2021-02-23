@@ -1,6 +1,5 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-from hyperparams import OPTIMIZER
 import tensorflow.keras as keras
 from tensorflow.keras import backend as K
 from timeit import default_timer as timer
@@ -24,13 +23,13 @@ import data_process as dp
 def main():
     # parse arguments
     parser = argparse.ArgumentParser(description='set params for simulation')
-    parser.add_argument('--rand_seed', dest='rand_seed',
-                        type=int, default=None, help='use pretrained weights')
+    parser.add_argument('--seed', dest='seed',
+                        type=int, default=0, help='use pretrained weights')
 
     parser.add_argument('--out', dest='out_file',
                         type=str, default='log.pickle', help='log history output')
     parser.add_argument('--cfg', dest='config_file',
-                        type=str, default='exp_cfg.json', help='name of the config file')
+                        type=str, default='toy_realworld_mnist_cfg.json', help='name of the config file')
     parser.add_argument('--draw_graph', dest='graph_file',
                         type=str, default=None, help='name of the output graph filename') 
 
@@ -38,6 +37,9 @@ def main():
 
     if parsed.config_file == None or parsed.out_file == None:
         print('Config file and output diretory has to be specified. Run \'python delegation_swarm_driver.py -h\' for help/.')
+
+    np.random.seed(parsed.seed)
+    tf.compat.v1.set_random_seed(parsed.seed)
 
     # load config file
     with open(parsed.config_file, 'rb') as f:
@@ -91,10 +93,10 @@ def main():
     enc_exp_config['send_duration'] = enc_config['send-duration']
     enc_exp_config['delegation_duration'] = enc_config['train-duration']
     enc_exp_config['max_delegations'] = enc_config['max-delegations']
+    # if config['mobility-model'] == 'levy-walk':
+    enc_exp_config['local_data_per_quad'] = config['district-9']
 
     hyperparams = config['hyperparams']
-
-    np.random.seed(parsed.rand_seed)  # for all the swarms to have the same client config
 
     test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, 800)
 
@@ -141,7 +143,7 @@ def main():
                 )
             )
     
-    del orig_swarm
+    # del orig_swarm
 
     hists = {}
     for i in range(0, len(test_swarms)):
@@ -164,6 +166,9 @@ def main():
 
     if parsed.graph_file != None:
         print('drawing graph...')
+        matplotlib.rcParams['pdf.fonttype'] = 42
+        matplotlib.rcParams['ps.fonttype'] = 42
+
         processed_hists = {}
         for k in hists.keys():
             t, acc = get_accs_over_time(hists[k], 'clients')
@@ -174,8 +179,8 @@ def main():
         for k in processed_hists.keys():
             plt.plot(np.array(processed_hists[k]['times']), np.array(processed_hists[k]['accs']), lw=1.2)
         plt.legend(list(processed_hists.keys()))
-        plt.ylabel("acc")
-        plt.xlabel("time")
+        plt.ylabel("Accuracy")
+        plt.xlabel("Time")
         plt.savefig(parsed.graph_file)
         plt.close()
 

@@ -170,19 +170,34 @@ def filter_data_by_labels_with_numbers(x_train, y_train, nums):
     return x_train[mask], y_train[mask]
 
 class StableTestDataProvider():
-    def __init__(self, x_train, y_train, size_per_label):
+    """
+    when size_per_label = 0, use all the data for the test set
+    """
+    def __init__(self, x_test, y_test, size_per_label=0):
         self.x_test_set_by_labels = []
         self.y_test_set_by_labels = []
-        for l in np.unique(y_train):
-            p = np.random.permutation(size_per_label)
-            self.x_test_set_by_labels.append(x_train[y_train == l][:size_per_label][p])
-            self.y_test_set_by_labels.append(y_train[y_train == l][:size_per_label][p])
-        self.num_classes = len(np.unique(y_train))
+        if size_per_label != 0:
+            for l in np.unique(y_test):
+                p = np.random.permutation(size_per_label)
+                self.x_test_set_by_labels.append(x_test[y_test == l][:size_per_label][p])
+                self.y_test_set_by_labels.append(y_test[y_test == l][:size_per_label][p])
+        else:
+            unique, counts = np.unique(y_test, return_counts=True)
+            count_dict = dict(zip(unique, counts))
+            for l in np.unique(y_test):
+                p = np.random.permutation(count_dict[l])
+                self.x_test_set_by_labels.append(x_test[y_test == l][p])
+                self.y_test_set_by_labels.append(y_test[y_test == l][p])
 
-    def fetch(self, labels, size_per_label):
-        xt = np.concatenate([self.x_test_set_by_labels[i][:size_per_label] for i in range(len(self.x_test_set_by_labels)) if i in labels], axis=0)
-        yt = np.concatenate([self.y_test_set_by_labels[i][:size_per_label] for i in range(len(self.y_test_set_by_labels)) if i in labels])
+        self.num_classes = len(np.unique(y_test))
 
+    def fetch(self, labels, size_per_label=0):
+        if size_per_label != 0:
+            xt = np.concatenate([self.x_test_set_by_labels[i][:size_per_label] for i in range(len(self.x_test_set_by_labels)) if i in labels], axis=0)
+            yt = np.concatenate([self.y_test_set_by_labels[i][:size_per_label] for i in range(len(self.y_test_set_by_labels)) if i in labels])
+        else:
+            xt = np.concatenate([self.x_test_set_by_labels[i] for i in range(len(self.x_test_set_by_labels)) if i in labels], axis=0)
+            yt = np.concatenate([self.y_test_set_by_labels[i] for i in range(len(self.y_test_set_by_labels)) if i in labels])
         return xt, yt
 
 class DataProvider():

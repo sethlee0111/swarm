@@ -12,6 +12,7 @@ from data_process import get_sim_even
 import pickle
 import models
 import model_distance as md
+from sklearn.metrics import f1_score
 from model_weight_utils import *
 
 def get_client_class(class_name):
@@ -61,6 +62,8 @@ class DelegationClient:
         self.test_data_provider = test_data_provider
         self._num_classes = test_data_provider.num_classes
         self._hyperparams = hyperparams
+        self._evaluation_metrics = hyperparams['evaluation-metrics']
+        self._similarity_threshold = hyperparams['similarity-threshold']
 
         ratio_per_label = 1./(len(target_labels))
         self._desired_data_dist = {}
@@ -184,9 +187,27 @@ class DelegationClient:
         self._weights = copy.deepcopy(agg_weights)
 
     def eval(self):
+        if self._evaluation_metrics == 'loss-and-accuracy':
+            return self.eval_loss_and_accuracy()
+        elif self._evaluation_metrics == 'f1-score-weighted':
+            return self.eval_f1_score()
+        else:
+            raise ValueError('evaluation metrics is invalid: {}'.format(self._evaluation_metrics))
+
+    def eval_loss_and_accuracy(self):
         model = self._get_model()
-        xt, yt = self.test_data_provider.fetch(list(self._desired_data_dist.keys()), 800)                           
+        xt, yt = self.test_data_provider.fetch(list(self._desired_data_dist.keys()), self._hyperparams['test-data-per-label'])                           
         hist = model.evaluate(xt, keras.utils.to_categorical(yt, self._num_classes), verbose=0)
+        self._last_hist = hist
+        K.clear_session()
+        del model
+        return hist
+
+    def eval_f1_score(self, average='weighted'):
+        model = self._get_model()
+        xt, yt = self.test_data_provider.fetch(list(self._desired_data_dist.keys()), self._hyperparams['test-data-per-label'])
+        y_pred = np.argmax(model.predict(xt), axis = 1)
+        hist = f1_score(yt, y_pred, average=average)
         self._last_hist = hist
         K.clear_session()
         del model
@@ -194,7 +215,7 @@ class DelegationClient:
 
     def eval_weights(self, weights):
         model = self._get_model_from_weights(weights)
-        xt, yt = self.test_data_provider.fetch(list(self._desired_data_dist.keys()), 800)                         
+        xt, yt = self.test_data_provider.fetch(list(self._desired_data_dist.keys()), self._hyperparams['test-data-per-label'])                         
         hist = model.evaluate(xt, keras.utils.to_categorical(yt, self._num_classes), verbose=0)
         K.clear_session()
         del model
@@ -265,10 +286,11 @@ class SimularityDelegationClient(DelegationClient):
         super().__init__(*args)
 
     def decide_delegation(self, other):
+        accum = 0.
         for k in self._desired_data_dist.keys():
             if k in other._local_data_dist:
-                return True
-        return False
+                accum += min(self._desired_data_dist[k], other._local_data_dist[k])
+        return accum >= self._similarity_threshold
 
 class LocalClient(DelegationClient):
     def __init__(self, *args):
