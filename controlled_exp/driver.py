@@ -14,6 +14,12 @@ import pickle
 import numpy as np
 from tqdm import tqdm
 from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
+import matplotlib.pyplot as plt
+import matplotlib
+
+# Use truetype fonts for graphs
+matplotlib.rcParams['pdf.fonttype'] = 42
+matplotlib.rcParams['ps.fonttype'] = 42
 
 # hyperparams for uci dataset
 SLIDING_WINDOW_LENGTH = 24
@@ -119,6 +125,10 @@ def main():
         elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
             logs[ck]['f1-score'] = []
             logs[ck]['f1-score'].append(hist)
+        elif config['hyperparams']['evaluation-metrics'] == 'split-f1-score-weighted':
+            for labels in config['hyperparams']['split-test-labels']:
+                logs[ck]['f1: ' + str(labels)] = []
+                logs[ck]['f1: ' + str(labels)].append(hist[str(labels)])
         else:
             ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
@@ -160,11 +170,31 @@ def main():
                     logs[ck]['accuracy'].append(hist[1])
                 elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
                     logs[ck]['f1-score'].append(hist)
+                elif config['hyperparams']['evaluation-metrics'] == 'split-f1-score-weighted':
+                    for labels in config['hyperparams']['split-test-labels']:
+                        logs[ck]['f1: ' + str(labels)].append(hist[str(labels)])
                 else:
                     ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
     with open(parsed.out_file, 'wb') as handle:
         pickle.dump(logs, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    # draw graph
+    if config['hyperparams']['evaluation-metrics'] == 'split-f1-score-weighted':
+        if parsed.graph_file != None:
+            for k in logs.keys():
+                filename = parsed.graph_file.split('.')[:-1] 
+                filename = ''.join(filename) + '_' + k
+                filename += '.pdf'
+                print(filename)
+                for labels in logs[k].keys():
+                    plt.plot(np.arange(0, len(logs[k][labels])), np.array(logs[k][labels]), lw=1.2)
+                plt.legend(list(logs[k].keys()))
+                plt.ylabel('F1-score')
+                plt.xlabel("Encounters")
+                plt.savefig(filename)
+                plt.close()
+        return
 
     if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
         key = 'accuracy'
@@ -172,12 +202,6 @@ def main():
         key = 'f1-score'
     
     if parsed.graph_file != None:
-        import matplotlib.pyplot as plt
-        import matplotlib
-
-        matplotlib.rcParams['pdf.fonttype'] = 42
-        matplotlib.rcParams['ps.fonttype'] = 42
-
         for k in logs.keys():
             plt.plot(np.arange(0, len(logs[k][key])), np.array(logs[k][key]), lw=1.2)
         plt.legend(list(logs.keys()))
@@ -185,6 +209,7 @@ def main():
             y_label = 'Accuracy'
         elif key == 'f1-score':
             y_label = 'F1-score'
+        plt.title(parsed.graph_file)
         plt.ylabel(y_label)
         plt.xlabel("Encounters")
         plt.savefig(parsed.graph_file)

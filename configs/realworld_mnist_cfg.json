@@ -28,7 +28,7 @@
         "encounter-data-file": "encounter_data/levy_walk_client_45_epi_150.pickle",
         "send-duration": 0.1,
         "train-duration": 2,
-        "max-delegations": 6
+        "max-delegations": 2
     },
     "hyperparams" : {
         "orig-lr": 0.01,
@@ -37,6 +37,7 @@
         "offset": 0.96,
         "apply-rate": 1,
         "test-data-per-label": 800,
-        "evaluation-metrics": "loss-and-accuracy"
+        "evaluation-metrics": "loss-and-accuracy",
+        "similarity-threshold": 0.2
     }
 }

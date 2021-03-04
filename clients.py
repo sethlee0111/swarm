@@ -26,6 +26,14 @@ def get_client_class(class_name):
         client_class = GreedySimClient
     elif class_name == 'greedy-no-sim':
         client_class = GreedyNoSimClient
+    elif class_name == 'simple-momentum':
+        client_class = SimpleMomentumClient
+    elif class_name == 'simple-momentum-changing-local':
+        client_class = SimpleMomentumChangingLocalClient
+    elif class_name == 'simple-momentum-decay':
+        client_class = SimpleMomentumAndDecayClient
+    elif class_name == 'only-momentum':
+        client_class = OnlyMomentumClient
     else:
         return None
     return client_class
@@ -191,6 +199,8 @@ class DelegationClient:
             return self.eval_loss_and_accuracy()
         elif self._evaluation_metrics == 'f1-score-weighted':
             return self.eval_f1_score()
+        elif self._evaluation_metrics == 'split-f1-score-weighted':
+            return self.eval_split_f1_score()
         else:
             raise ValueError('evaluation metrics is invalid: {}'.format(self._evaluation_metrics))
 
@@ -208,6 +218,20 @@ class DelegationClient:
         xt, yt = self.test_data_provider.fetch(list(self._desired_data_dist.keys()), self._hyperparams['test-data-per-label'])
         y_pred = np.argmax(model.predict(xt), axis = 1)
         hist = f1_score(yt, y_pred, average=average)
+        self._last_hist = hist
+        K.clear_session()
+        del model
+        return hist
+
+    def eval_split_f1_score(self, average='weighted'):
+        model = self._get_model()
+        hist = {}
+        for labels in self._hyperparams['split-test-labels']:
+            xt, yt = self.test_data_provider.fetch(labels, self._hyperparams['test-data-per-label'])
+            y_pred = np.argmax(model.predict(xt), axis = 1)
+            if str(labels) not in hist:
+                hist[str(labels)] = []
+            hist[str(labels)].append(f1_score(yt, y_pred, average=average))
         self._last_hist = hist
         K.clear_session()
         del model
@@ -241,6 +265,13 @@ class DelegationClient:
         self._compile_config['optimizer'] = self._opt_fn(lr=lr)
         model.compile(**self._compile_config)
         return model
+
+    def _get_dist_similarity(self, d1, d2):
+        accum = 0.
+        for k in d1.keys():
+            if k in d2:
+                accum += min(d1[k], d2[k])
+        return accum
     
     def fit_to(self, other, epoch):
         model = self._get_model()
@@ -285,12 +316,15 @@ class SimularityDelegationClient(DelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def decide_delegation(self, other):
+    def get_similarity(self, other):
         accum = 0.
         for k in self._desired_data_dist.keys():
             if k in other._local_data_dist:
                 accum += min(self._desired_data_dist[k], other._local_data_dist[k])
-        return accum >= self._similarity_threshold
+        return accum
+
+    def decide_delegation(self, other):
+        return self.get_similarity(other) >= self._similarity_threshold
 
 class LocalClient(DelegationClient):
     def __init__(self, *args):
@@ -362,6 +396,221 @@ class AdvancedGreedyClient(SimularityDelegationClient):
             remote_grads = multiply_weights(remote_grads, fac)
             self._weights = add_weights(self._weights, remote_grads)
             self._weights = self.fit_w_lr_to(self, 1, lr)
+
+class SimpleMomentumClient(SimularityDelegationClient):
+    """
+    very similar to vanilla momentum.
+    no overwriting subsets/supersets
+    no decay
+    @TODO not update with local, weight local
+    """
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_accum = None
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+
+    def delegate(self, other, epoch, iteration=2):
+        if not self.decide_delegation(other):
+            return
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+
+        if self._cache_accum == None:
+            self._cache_accum = grads
+        else:
+            self._cache_accum = avg_weights(multiply_weights(grads, 0.5), multiply_weights(self._cache_accum, 0.5))
+
+        for _ in range(iteration):
+            self._weights = add_weights(self._weights, self._cache_accum)
+            self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        K.clear_session()
+
+class SimpleMomentumChangingLocalClient(SimularityDelegationClient):
+    """
+    very similar to vanilla momentum.
+    no overwriting subsets/supersets
+    no decay
+    @TODO not update with local, weight local
+    """
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_accum = None
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+        self.local_fac = self._hyperparams['orig-lr']
+        self.local_decay = 0.96
+
+    def delegate(self, other, epoch, iteration=2):
+        if not self.decide_delegation(other):
+            return
+        lr = self._hyperparams['orig-lr']
+        self.local_fac *= self.local_decay
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+
+        if self._cache_accum == None:
+            self._cache_accum = grads
+        else:
+            self._cache_accum = avg_weights(multiply_weights(grads, 0.5), multiply_weights(self._cache_accum, 0.5))
+
+        for _ in range(iteration):
+            self._weights = add_weights(self._weights, self._cache_accum)
+            self._weights = self.fit_w_lr_to(self, 1, self.local_fac)
+
+        K.clear_session()
+
+class SimpleMomentumAndDecayClient(SimularityDelegationClient):
+    """
+    very similar to vanilla momentum.
+    no overwriting subsets/supersets
+    no decay
+    @TODO not update with local, weight local
+    """
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_accum = None
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+
+    def delegate(self, other, epoch, iteration=2):
+        if not self.decide_delegation(other):
+            return
+        drift = md.l2_distance_w(self._weights, self.init_weights)
+        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
+        lr_fac = np.exp(xx)/(np.exp(xx) + 1)
+        self.lr_fac_min = min(self.lr_fac_min, lr_fac)
+        lr = self.lr_fac_min * self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+
+        if self._cache_accum == None:
+            self._cache_accum = grads
+        else:
+            self._cache_accum = avg_weights(multiply_weights(grads, 0.5), multiply_weights(self._cache_accum, 0.5))
+
+        for _ in range(iteration):
+            self._weights = add_weights(self._weights, self._cache_accum)
+            self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        # print("SimpleMomentumAndDecayClient lr: {}".format(lr))
+
+        K.clear_session()
+
+class SimpleWeightedMomentumClient(SimularityDelegationClient):
+    """
+    only a very simple book-keeping.
+    no overwriting subsets/supersets
+    no decay
+    @TODO not update with local, weight local
+    """
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_accum = None
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+
+    def delegate(self, other, epoch, iteration=2):
+        if not self.decide_delegation(other):
+            return
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+
+        if self._cache_accum == None:
+            self._cache_accum = grads
+        else:
+            self._cache_accum = avg_weights(multiply_weights(grads, 0.5), multiply_weights(self._cache_accum, 0.5))
+
+        for _ in range(iteration):
+            self._weights = add_weights(self._weights, self._cache_accum)
+            self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        K.clear_session()
+
+class OnlyMomentumClient(SimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_comb = []  
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+
+    def delegate(self, other, epoch, iteration=2):
+        if not self.decide_delegation(other):
+            return
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+        if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
+            # update cache
+            found_subsets = [] # smaller or equal
+            found_supersets = [] # bigger
+            for c in range(len(self._cache_comb)):
+                if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
+                    found_subsets.append(c)
+                elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
+                        len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
+                    found_supersets.append(c)
+
+            if len(found_supersets) == 0:
+                if len(found_subsets) != 0:
+                    for c in sorted(found_subsets, reverse=True):
+                        del self._cache_comb[c]
+                self._cache_comb.append([set(other._local_data_dist.keys()), grads])
+
+            else: # @TODO this is where I'm not too sure about
+                for c in found_supersets:
+                    self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
+
+        if len(self._cache_comb) > 0:
+            agg_g = None
+            fac_sum = 0
+            for cc in self._cache_comb:
+                fac = np.exp(-7 * (1-get_sim_even(self.desired_prob, cc[0])))
+                agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
+                fac_sum += fac
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate']/(len(self._cache_comb)*(fac_sum)))
+            # do training
+            for _ in range(iteration):
+                self._weights = add_weights(self._weights, agg_g)
+                self._weights = self.fit_w_lr_to(self, 1, lr)
+        else:
+            for _ in range(iteration):
+                self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        K.clear_session()
 
 class MomentumClient(SimularityDelegationClient):
     def __init__(self, *args):
