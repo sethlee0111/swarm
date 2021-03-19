@@ -94,7 +94,10 @@ def main():
     enc_exp_config['delegation_duration'] = enc_config['train-duration']
     enc_exp_config['max_delegations'] = enc_config['max-delegations']
     # if config['mobility-model'] == 'levy-walk':
-    enc_exp_config['local_data_per_quad'] = config['district-9']
+    try:
+        enc_exp_config['local_data_per_quad'] = config['district-9']
+    except:
+        enc_exp_config['local_data_per_quad'] = None
 
     hyperparams = config['hyperparams']
 
@@ -149,7 +152,7 @@ def main():
     for i in range(0, len(test_swarms)):
         start = timer()
         print("{} == running {} with {}".format(swarm_names[i], test_swarms[i].__class__.__name__, test_swarms[i]._clients[0].__class__.__name__))
-        print("swarm {} of {}".format(i, len(test_swarms)))
+        print("swarm {} of {}".format(i+1, len(test_swarms)))
         test_swarms[i].run()
         end = timer()
         print('-------------- Elasped Time --------------')
@@ -189,7 +192,7 @@ def get_accs_over_time(loaded_hist, key):
     #     print("total exchanges: {}".format(loaded_hist['total_exchanges'][-1]))
     for k in loaded_hist[key].keys():
         i = 0
-        for t, h in loaded_hist[key][k]:
+        for t, h, _ in loaded_hist[key][k]:  # unpack (time, (loss,acc), label set)
             if t != 0:
                 loss_diff_at_time.append((t, loaded_hist[key][k][i][1][1] - loaded_hist[key][k][i-1][1][1]))
             i += 1

@@ -37,7 +37,7 @@ class Swarm():
         compile_config = {'loss': 'mean_squared_error', 'metrics': ['accuracy']}
         train_config = {'batch_size': hyperparams['batch-size'], 'shuffle': True}
 
-        # self.train_data_provider = data_process.DataProvider(x_train, y_train)
+        self.train_data_provider = dp.DataProvider(x_train, y_train)
         self.num_data_per_label_in_client = num_data_per_label_in_client
 
         num_unknown_label_per_client = max(num_req_label_per_client - num_label_per_client, 0)
@@ -46,7 +46,10 @@ class Swarm():
             self._clients = []
             # prepare data for quadrants
             # if enc_exp_config['mobility_model'] == 'levy_walk':
-            self.local_data_per_quad = enc_exp_config['local_data_per_quad']
+            try:
+                self.local_data_per_quad = enc_exp_config['local_data_per_quad']
+            except:
+                self.local_data_per_quad = None
             # elif enc_exp_config['mobility_model'] == 'sigcomm2009':
             #     pass
             # else:
@@ -65,7 +68,12 @@ class Swarm():
                 # np.random.shuffle(num_starts)
                 # local_data_labels = np.arange(num_starts[0], num_starts[0]+5)
                 # if enc_exp_config['mobility_model'] == 'levy_walk':
-                local_data_labels = self.local_data_per_quad[(int)(i / (int)(num_clients/9))]
+                if self.local_data_per_quad is not None:
+                    local_data_labels = self.local_data_per_quad[(int)(i / (int)(num_clients/9))]
+                else:
+                    local_candidates = np.array(np.arange(test_data_provider.num_classes))
+                    np.random.shuffle(local_candidates)
+                    local_data_labels = local_candidates[:num_label_per_client]
                 # elif enc_exp_config['mobility_model'] == 'sigcomm2009':
                     
 
@@ -85,6 +93,7 @@ class Swarm():
                                     copy.deepcopy(pretrain_model_weight),
                                     x_train_client,
                                     y_train_client,
+                                    self.train_data_provider,
                                     self.test_data_provider,
                                     target_labels,  # assume that required d.d == client d.d.
                                     compile_config,
@@ -99,6 +108,7 @@ class Swarm():
                                     copy.deepcopy(pretrain_model_weight),
                                     from_swarm._clients[i]._x_train,
                                     from_swarm._clients[i]._y_train_orig,
+                                    from_swarm.train_data_provider,
                                     from_swarm.test_data_provider,
                                     list(from_swarm._clients[i]._desired_data_dist.keys()),  # assume that required d.d == client d.d.
                                     compile_config,
@@ -134,7 +144,7 @@ class Swarm():
         #  run one local updates each first
         for i in range(len(self._clients)):
             hist = self._clients[i].eval()
-            self.hist['clients'][i].append((0, hist)) # assume clients all start from the same init
+            self.hist['clients'][i].append((0, hist, [])) # assume clients all start from the same init
             self.hist['loss_max'].append(hist[0])
             self.hist['loss_min'].append(hist[0])
 
@@ -175,7 +185,10 @@ class Swarm():
             c1_delegate_to_c2 = c1.decide_delegation(c2)
             c2_delegate_to_c1 = c2.decide_delegation(c1)
             if c1_delegate_to_c2 or c2_delegate_to_c1:
-                delegations = min((int)(t_left/self.delegation_time), self._config['max_delegations'])
+                num_delegations = (int)(t_left/self.delegation_time)
+                if num_delegations < 1:
+                    continue
+                delegations = min(num_delegations, self._config['max_delegations'])
                 self.last_end_time[c1_idx] = cur_t + self.delegation_time * delegations
                 self.last_end_time[c2_idx] = cur_t + self.delegation_time * delegations
 
@@ -184,7 +197,7 @@ class Swarm():
                 c1.delegate(c2, 1, delegations)
                 self.hist['total_delegations'] += 1
                 hist = c1.eval()
-                self.hist['clients'][c1_idx].append((self.last_end_time[c1_idx], hist))
+                self.hist['clients'][c1_idx].append((self.last_end_time[c1_idx], hist, list(c2._local_data_dist.keys())))
                 # self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1])) # @TODO this won't work with eval_f1_score
                 # self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
             if c2_delegate_to_c1:
@@ -192,7 +205,7 @@ class Swarm():
                 c2.delegate(c1, 1, delegations)
                 self.hist['total_delegations'] += 1
                 hist = c2.eval()
-                self.hist['clients'][c2_idx].append((self.last_end_time[c2_idx], hist)) 
+                self.hist['clients'][c2_idx].append((self.last_end_time[c2_idx], hist, list(c1._local_data_dist.keys()))) 
                 # self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1]))
                 # self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
                 

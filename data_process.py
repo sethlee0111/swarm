@@ -36,7 +36,39 @@ def visualize_writings(writing):
     im = ax.imshow(np.array(map2d))
     fig.tight_layout()
     plt.show()
+
+def get_even_prob(lst):
+    dist = {}
+    for l in lst:
+        dist[l] = 1./len(lst)
+    return dist
     
+def get_kl_div(dist_dict_1, dist_dict_2, num_classes):
+    kl_div = 0
+    for l in range(num_classes):
+        if l not in dist_dict_1:
+            dist_dict_1[l] = 0.00001
+        if l not in dist_dict_2:
+            dist_dict_2[l] = 0.00001
+    for k in dist_dict_1.keys():
+        if k in dist_dict_2:
+            kl_div += dist_dict_1[k] * np.log(dist_dict_1[k]/dist_dict_2[k])
+        else:
+            return np.inf
+    return kl_div
+
+def JSD(dist_dict_1, dist_dict_2, num_classes):
+    for l in range(num_classes):
+        if l not in dist_dict_1:
+            dist_dict_1[l] = 1e-09
+        if l not in dist_dict_2:
+            dist_dict_2[l] = 1e-09
+    dist_dict_m = {}
+    for l in dist_dict_1.keys():
+        dist_dict_m[l] = (dist_dict_1[l] + dist_dict_2[l])/2
+    return (get_kl_div(dist_dict_1, dist_dict_m, num_classes) + \
+            get_kl_div(dist_dict_2, dist_dict_m, num_classes))/2
+
 def get_sim_even(probs, labels):
         dist_dict = {}
         for l in labels:
@@ -166,6 +198,22 @@ def filter_data_by_labels_with_numbers(x_train, y_train, nums):
                 cnt += 1
 
         mask |= np.append(new_mask[:i], np.zeros(total_data_size-i, dtype=bool))
+        
+    return x_train[mask], y_train[mask]
+
+def filter_data(x_train, y_train, labels):
+    """
+    labels: a list of labels that'll be included in the returning training set
+    """
+    p = np.random.permutation(len(x_train))
+    x_train = x_train[p]
+    y_train = y_train[p]
+    
+    mask = np.zeros(y_train.shape, dtype=bool)
+    
+    for l in labels:
+        label_mask = (y_train == l)
+        mask |= label_mask
         
     return x_train[mask], y_train[mask]
 
