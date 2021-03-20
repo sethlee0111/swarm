@@ -189,27 +189,37 @@ def main():
 
 def get_accs_over_time(loaded_hist, key):
     loss_diff_at_time = []
-    #     print("total exchanges: {}".format(loaded_hist['total_exchanges'][-1]))
+#     print("total exchanges: {}".format(loaded_hist['total_exchanges'][-1]))
     for k in loaded_hist[key].keys():
         i = 0
-        for t, h, _ in loaded_hist[key][k]:  # unpack (time, (loss,acc), label set)
+        for t, h, _ in loaded_hist[key][k]:
             if t != 0:
                 loss_diff_at_time.append((t, loaded_hist[key][k][i][1][1] - loaded_hist[key][k][i-1][1][1]))
             i += 1
-    lst = len(loss_diff_at_time)  
-    for i in range(0, lst):  
-        for j in range(0, lst-i-1):  
-            if (loss_diff_at_time[j][0] > loss_diff_at_time[j + 1][0]):  
-                temp = loss_diff_at_time[j]  
-                loss_diff_at_time[j]= loss_diff_at_time[j + 1]  
-                loss_diff_at_time[j + 1]= temp  
+    lst = len(loss_diff_at_time)
+    loss_diff_at_time.sort(key=lambda x: x[0])
+
+    # concatenate duplicate time stamps
+    ldat_nodup = []
+    for lt in loss_diff_at_time:
+        if len(ldat_nodup) != 0 and ldat_nodup[-1][0] == lt[0]:
+            ldat_nodup[-1] = (ldat_nodup[-1][0], ldat_nodup[-1][1] + lt[1])
+        else:
+            ldat_nodup.append(lt)
+    print(ldat_nodup)
     times = []
     loss_list = []
     times.append(0)
-    loss_list.append(loaded_hist[key][0][0][1][1])
-    for i in range(1, len(loss_diff_at_time)):
-        times.append(loss_diff_at_time[i][0])
-        loss_list.append(loss_list[i-1] + loss_diff_at_time[i][1]/len(loaded_hist[key]))
+    # get first accuracies
+    accum = []
+    for c in loaded_hist[key].keys():
+        print(loaded_hist[key][c])
+        accum.append(loaded_hist[key][c][0][1][1])
+        
+    loss_list.append(sum(accum)/len(accum))
+    for i in range(1, len(ldat_nodup)):
+        times.append(ldat_nodup[i][0])
+        loss_list.append(loss_list[i-1] + ldat_nodup[i][1]/len(loaded_hist[key]))
         
     return times, loss_list
 

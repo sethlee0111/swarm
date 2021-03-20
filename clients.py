@@ -1218,7 +1218,7 @@ class JSDMomentumClient(SimularityDelegationClient):
                 fac = np.exp(-8*JSD(get_even_prob(cc[0]), self.desired_prob, self._num_classes))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
                 # print(cc[0])
-            agg_g = multiply_weights(agg_g, 6*self._hyperparams['apply-rate']/(len(self._cache_comb)))
+            agg_g = multiply_weights(agg_g, 2*self._hyperparams['apply-rate']/(len(self._cache_comb)))
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
@@ -1285,6 +1285,7 @@ class JSDLocalIncMomentumClient(SimularityDelegationClient):
         if len(self._cache_comb) > 0:
             agg_g = None
             for cc in self._cache_comb:
+                print(cc[0])
                 fac = np.exp(-8*JSD(get_even_prob(cc[0]), self.desired_prob, self._num_classes))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
                 # print(cc[0])
