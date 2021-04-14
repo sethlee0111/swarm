@@ -34,6 +34,10 @@ def get_client_class(class_name):
         client_class = JSDMomentumClient
     elif class_name == 'jsd-local-inc-momentum':
         client_class = JSDLocalIncMomentumClient
+    elif class_name == 'jsd-local-inc-stale-momentum':
+        client_class = JSDLocalIncStaleMomentumClient
+    elif class_name == 'jsd-local-inc-stale-minmax-momentum':
+        client_class = JSDLocalIncStaleMinMaxMomentumClient
     elif class_name == 'simple-momentum-changing-local':
         client_class = SimpleMomentumChangingLocalClient
     elif class_name == 'simple-momentum-decay':
@@ -60,10 +64,31 @@ def get_client_class(class_name):
         client_class = NoDupMomentumClient
     elif class_name == 'filtered-greedy':
         client_class = FilteredGreedySimClient
+    elif class_name == 'jsd-greedy-sim':
+        client_class = JSDGreedySimClient
     elif class_name == 'kl-greedy-sim':
         client_class = KLGreedySimClient
     elif class_name == 'kl-greedy-only-sim':
         client_class = KLGreedyOnlySimClient
+    elif class_name == 'federated-greedy-no-sim':
+        client_class = FederatedGreedyNoSimClient
+    elif class_name == 'federated-greedy-sim':
+        client_class = FederatedJSDGreedyClient
+    ### for publication
+    elif class_name == 'greedy':
+        client_class = GreedyNoSimClient
+    elif class_name == 'opportunistic':
+        client_class = JSDGreedySimClient
+    elif class_name == 'opportunistic (high thres.)':
+        client_class = HighJSDGreedySimClient
+    elif class_name == 'federated':
+        client_class = FederatedGreedyNoSimClient
+    elif class_name == 'federated (opportunistic)':
+        client_class = FederatedJSDGreedyClient
+    elif class_name == 'gradient replay':
+        client_class = JSDLocalIncStaleMomentumClient
+    elif class_name == 'gradient replay (high thres.)':
+        client_class = HighJSDLocalIncStaleMomentumClient
     else:
         return None
     return client_class
@@ -372,6 +397,9 @@ class DelegationClient:
     def decide_delegation(self, other):
         return True
 
+    def is_federated(self):
+        return False
+
 class SimularityDelegationClient(DelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
@@ -396,21 +424,38 @@ class KLSimularityDelegationClient(DelegationClient):
         super().__init__(*args)
 
     def get_similarity(self, other):
-        return self.get_kl_div(other._local_data_dist, self._desired_data_dist)
-
-    def get_kl_div(self, dist_dict_1, dist_dict_2):
-        kl_div = 0
-        for k in dist_dict_1.keys():
-            if k in dist_dict_2:
-                kl_div += dist_dict_1[k] * np.log(dist_dict_1[k]/dist_dict_2[k])
-            else:
-                return np.inf
-        return kl_div
+        return np.exp(-8*get_kl_div(other._local_data_dist, self._desired_data_dist, self._num_classes))
     
     def decide_delegation(self, other):
         kl_div = self.get_similarity(other)
         if kl_div != np.nan and kl_div != np.inf:
             return kl_div <= 0.95
+        return False
+
+class JSDSimularityDelegationClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def get_similarity(self, other):
+        return JSD(other._local_data_dist, self._desired_data_dist, self._num_classes)
+    
+    def decide_delegation(self, other):
+        jsd = self.get_similarity(other)
+        if jsd != np.nan and jsd != np.inf:
+            return jsd <= 0.5
+        return False
+
+class HighJSDSimularityDelegationClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def get_similarity(self, other):
+        return JSD(other._local_data_dist, self._desired_data_dist, self._num_classes)
+    
+    def decide_delegation(self, other):
+        jsd = self.get_similarity(other)
+        if jsd != np.nan and jsd != np.inf:
+            return jsd <= 0.4
         return False
 
 class AdvancedSimularityDelegationClient(SimularityDelegationClient):
@@ -505,6 +550,30 @@ class KLGreedySimClient(KLSimularityDelegationClient):
             self._weights = self.fit_to(other, 1)
             self._weights = self.fit_to(self, 1)
 
+class JSDGreedySimClient(JSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def delegate(self, other, epoch, iteration):
+        if not self.decide_delegation(other):
+            return
+        # print("greedy sim encorporate with {}".format(other._local_data_dist))
+        for _ in range(iteration):
+            self._weights = self.fit_to(other, 1)
+            self._weights = self.fit_to(self, 1)
+
+class HighJSDGreedySimClient(HighJSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def delegate(self, other, epoch, iteration):
+        if not self.decide_delegation(other):
+            return
+        # print("greedy sim encorporate with {}".format(other._local_data_dist))
+        for _ in range(iteration):
+            self._weights = self.fit_to(other, 1)
+            self._weights = self.fit_to(self, 1)
+
 class KLGreedyOnlySimClient(KLSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
@@ -515,6 +584,68 @@ class KLGreedyOnlySimClient(KLSimularityDelegationClient):
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
         for _ in range(iteration):
             self._weights = self.fit_to(other, 1)
+
+class FederatedGreedyNoSimClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.encountered_clients = {}
+
+    def delegate(self, other, *args):
+        self.encountered_clients[other._id_num] = other
+
+    def federated_round(self, epochs):
+        updates = []
+        for k in self.encountered_clients:
+            updates.append(self.fit_to(self.encountered_clients[k], 1))
+        agg_weights = list()
+        for weights_list_tuple in zip(*updates):
+            agg_weights.append(np.array([np.average(np.array(w), axis=0) for w in zip(*weights_list_tuple)]))
+        self._weights = agg_weights
+
+    def is_federated(self):
+        return True
+
+    def eval(self):
+        return [0]
+    
+    def federated_eval(self):
+        if self._evaluation_metrics == 'loss-and-accuracy':
+            return self.eval_loss_and_accuracy()
+        elif self._evaluation_metrics == 'f1-score-weighted':
+            return self.eval_f1_score()
+        elif self._evaluation_metrics == 'split-f1-score-weighted':
+            return self.eval_split_f1_score()
+        else:
+            raise ValueError('evaluation metrics is invalid: {}'.format(self._evaluation_metrics))
+
+class FederatedJSDGreedyClient(JSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.other_x_trains = None
+        self.other_y_trains = None
+
+    def delegate(self, other, *args):
+        if not self.decide_delegation(other):
+            return
+        if self.other_x_trains == None or self.other_y_trains == None:
+            self.other_x_trains = copy.deepcopy(other._x_train)
+            self.other_y_trains = copy.deepcopy(other._y_train)
+        else:
+            self.other_x_trains = np.concatenate(self.other_x_trains, other._x_train)
+            self.other_y_trains = np.concatenate(self.other_y_trains, other._y_train)
+
+    def train(self, epochs):
+        model = self._get_model()
+        self._train_config['epochs'] = 1
+        self._train_config['x'] = np.concatenate(self.other_x_trains, self._x_train)
+        self._train_config['y'] = np.concatenate(self.other_y_trains, self._y_train)
+        self._train_config['verbose'] = 0
+        self._train_config['shuffle'] = True
+        model.fit(**self._train_config)
+        weights = copy.deepcopy(model.get_weights())
+        K.clear_session()
+        del model
+        self._weights = weights
 
 class FilteredGreedySimClient(SimularityDelegationClient):
     def __init__(self, *args):
@@ -1168,7 +1299,7 @@ class MomentumClient(SimularityDelegationClient):
 
         K.clear_session()
 
-class JSDMomentumClient(SimularityDelegationClient):
+class JSDMomentumClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
         self._cache_comb = []  
@@ -1188,6 +1319,8 @@ class JSDMomentumClient(SimularityDelegationClient):
         lr_fac = np.exp(xx)/(np.exp(xx) + 1)
         self.lr_fac_min = min(self.lr_fac_min, lr_fac)
         lr = self.lr_fac_min * self._hyperparams['orig-lr']
+
+        lr = self._hyperparams['orig-lr']
 
         new_weights = self.fit_w_lr_to(other, 1, lr)
         grads = gradients(self._weights, new_weights)
@@ -1218,7 +1351,7 @@ class JSDMomentumClient(SimularityDelegationClient):
                 fac = np.exp(-8*JSD(get_even_prob(cc[0]), self.desired_prob, self._num_classes))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
                 # print(cc[0])
-            agg_g = multiply_weights(agg_g, 2*self._hyperparams['apply-rate']/(len(self._cache_comb)))
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
@@ -1228,12 +1361,17 @@ class JSDMomentumClient(SimularityDelegationClient):
         #         self._weights = self.fit_w_lr_to(self, 1, lr)
 
         K.clear_session()
-
-class JSDLocalIncMomentumClient(SimularityDelegationClient):
+# update gradients for local
+        # new_weights = self.fit_w_lr_to(self, 1, lr)
+        # grads = gradients(self._weights, new_weights)
+        # for c in self._cache_comb:
+        #     if c[0] == set(self._local_data_dist.keys()):
+        #         c[1] = grads
+        #         # c[2] = 0
+class JSDLocalIncMomentumClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
         self._cache_comb = []  
-        self._cache_comb.append([set(self._local_data_dist.keys()), 0])
         self.cache_comb_decay_total_updates = 0  
         self.init_weights = copy.deepcopy(self._weights)
         self.lr_fac_min = 1
@@ -1250,6 +1388,8 @@ class JSDLocalIncMomentumClient(SimularityDelegationClient):
         lr_fac = np.exp(xx)/(np.exp(xx) + 1)
         self.lr_fac_min = min(self.lr_fac_min, lr_fac)
         lr = self.lr_fac_min * self._hyperparams['orig-lr']
+
+        lr = self._hyperparams['orig-lr']
 
         new_weights = self.fit_w_lr_to(other, 1, lr)
         grads = gradients(self._weights, new_weights)
@@ -1274,27 +1414,278 @@ class JSDLocalIncMomentumClient(SimularityDelegationClient):
             for c in found_supersets:
                 self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
 
-        # update gradients for local
-        new_weights = self.fit_w_lr_to(self, 1, lr)
-        grads = gradients(self._weights, new_weights)
-        for c in self._cache_comb:
-            if c[0] == set(self._local_data_dist.keys()):
-                c[1] = grads
-                # c[2] = 0
-
         if len(self._cache_comb) > 0:
             agg_g = None
             for cc in self._cache_comb:
-                print(cc[0])
                 fac = np.exp(-8*JSD(get_even_prob(cc[0]), self.desired_prob, self._num_classes))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
                 # print(cc[0])
-            agg_g = multiply_weights(agg_g, 6*self._hyperparams['apply-rate']/(len(self._cache_comb)))
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
+                fac = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist)), self._desired_data_dist, self._num_classes))
+                new_weights = self.fit_w_lr_to(self, 1, lr)
+                grads = gradients(self._weights, new_weights)
+                self._weights = add_weights(self._weights, multiply_weights(grads, fac*self._hyperparams['apply-rate']))
+
+        # else:
+        #     for _ in range(iteration):
+        #         self._weights = self.fit_w_lr_to(self, 1, lr)
 
         K.clear_session()
+
+class JSDLocalIncStaleMomentumClient(JSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_comb = []  # list of (label_sets, gradients, weights)
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+        self.local_weight = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist)), self._desired_data_dist, self._num_classes))
+
+    def delegate(self, other, epoch, iteration=1):
+        if not self.decide_delegation(other):
+            return
+        drift = md.l2_distance_w(self._weights, self.init_weights)
+        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
+        lr_fac = np.exp(xx)/(np.exp(xx) + 1)
+        self.lr_fac_min = min(self.lr_fac_min, lr_fac)
+        lr = self.lr_fac_min * self._hyperparams['orig-lr']
+
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+        # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
+        # update cache
+        found_subsets = [] # smaller or equal
+        found_supersets = [] # bigger
+        for c in range(len(self._cache_comb)):
+            if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
+                found_subsets.append(c)
+            elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
+                    len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
+                found_supersets.append(c)
+
+        if len(found_supersets) == 0:
+            if len(found_subsets) != 0:
+                for c in sorted(found_subsets, reverse=True):
+                    del self._cache_comb[c]
+            weight = np.exp(-8*JSD(get_even_prob(set(other._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
+            self._cache_comb.append([set(other._local_data_dist.keys()), grads, weight])
+
+        else: # @TODO this is where I'm not too sure about
+            for c in found_supersets:
+                self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
+
+        stale_list = []
+        if len(self._cache_comb) > 0:
+            agg_g = None
+            for cc in self._cache_comb:
+                agg_g = add_weights(agg_g, multiply_weights(cc[1], cc[2]))
+                cc[2] *= 0.98 # @TODO add this to hyperparams
+                if cc[2] < 0.001:
+                    stale_list.append(cc)
+            # remove stale gradients from the data structure
+            for sl in stale_list:
+                self._cache_comb.remove(sl)
+            
+            # aggregate weights
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
+
+            # do training
+            for _ in range(iteration):
+                self._weights = add_weights(self._weights, agg_g)
+                new_weights = self.fit_w_lr_to(self, 1, lr)
+                grads = gradients(self._weights, new_weights)
+                self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self._hyperparams['apply-rate']))
+
+        # else:
+        #     for _ in range(iteration):
+        #         self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        K.clear_session()
+
+class HighJSDLocalIncStaleMomentumClient(HighJSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_comb = []  # list of (label_sets, gradients, weights)
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+        self.local_weight = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist)), self._desired_data_dist, self._num_classes))
+
+    def delegate(self, other, epoch, iteration=1):
+        if not self.decide_delegation(other):
+            return
+        drift = md.l2_distance_w(self._weights, self.init_weights)
+        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
+        lr_fac = np.exp(xx)/(np.exp(xx) + 1)
+        self.lr_fac_min = min(self.lr_fac_min, lr_fac)
+        lr = self.lr_fac_min * self._hyperparams['orig-lr']
+
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+        # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
+        # update cache
+        found_subsets = [] # smaller or equal
+        found_supersets = [] # bigger
+        for c in range(len(self._cache_comb)):
+            if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
+                found_subsets.append(c)
+            elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
+                    len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
+                found_supersets.append(c)
+
+        if len(found_supersets) == 0:
+            if len(found_subsets) != 0:
+                for c in sorted(found_subsets, reverse=True):
+                    del self._cache_comb[c]
+            weight = np.exp(-8*JSD(get_even_prob(set(other._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
+            self._cache_comb.append([set(other._local_data_dist.keys()), grads, weight])
+
+        else: # @TODO this is where I'm not too sure about
+            for c in found_supersets:
+                self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
+
+        stale_list = []
+        if len(self._cache_comb) > 0:
+            agg_g = None
+            for cc in self._cache_comb:
+                agg_g = add_weights(agg_g, multiply_weights(cc[1], cc[2]))
+                cc[2] *= 0.98 # @TODO add this to hyperparams
+                if cc[2] < 0.001:
+                    stale_list.append(cc)
+            # remove stale gradients from the data structure
+            for sl in stale_list:
+                self._cache_comb.remove(sl)
+            
+            # aggregate weights
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
+
+            # do training
+            for _ in range(iteration):
+                self._weights = add_weights(self._weights, agg_g)
+                new_weights = self.fit_w_lr_to(self, 1, lr)
+                grads = gradients(self._weights, new_weights)
+                self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self._hyperparams['apply-rate']))
+
+        # else:
+        #     for _ in range(iteration):
+        #         self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        K.clear_session()
+
+class JSDLocalIncStaleMinMaxMomentumClient(JSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_comb = []  # list of (label_sets, gradients, weights)
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
+        self.desired_prob = {}
+        for l in unknown_set:
+            self.desired_prob[l] = 1./len(unknown_set)
+        self.local_weight = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist)), self._desired_data_dist, self._num_classes))
+
+        # "MinMax"
+        self.labels_apply_nums = {}
+        for l in self._desired_data_dist.keys():
+            self.labels_apply_nums[l] = 0
+
+    def delegate(self, other, epoch, iteration=1):
+        if not self.decide_delegation(other):
+            return
+        drift = md.l2_distance_w(self._weights, self.init_weights)
+        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
+        lr_fac = np.exp(xx)/(np.exp(xx) + 1)
+        self.lr_fac_min = min(self.lr_fac_min, lr_fac)
+        lr = self.lr_fac_min * self._hyperparams['orig-lr']
+
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, 1, lr)
+        grads = gradients(self._weights, new_weights)
+        # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
+        # update cache
+        found_subsets = [] # smaller or equal
+        found_supersets = [] # bigger
+        for c in range(len(self._cache_comb)):
+            if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
+                found_subsets.append(c)
+            elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
+                    len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
+                found_supersets.append(c)
+
+        if len(found_supersets) == 0:
+            if len(found_subsets) != 0:
+                for c in sorted(found_subsets, reverse=True):
+                    del self._cache_comb[c]
+            weight = np.exp(-8*JSD(get_even_prob(set(other._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
+            self._cache_comb.append([set(other._local_data_dist.keys()), grads, weight])
+
+        else: # @TODO this is where I'm not too sure about
+            for c in found_supersets:
+                self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
+
+        # "MinMax"
+        # Count the labels in the cache. If the label distribution of applied gradients doesn't satisfy our condition, then we defer model update
+        for cc in self._cache_comb: 
+            after_labels_apply_nums = copy.deepcopy(self.labels_apply_nums)
+            for l in cc[0]:
+                if l in list(self._desired_data_dist.keys()):
+                    after_labels_apply_nums[l] += 1
+        max_label = max(after_labels_apply_nums.values())
+        min_label = min(after_labels_apply_nums.values())
+        if max_label - min_label > 10:
+            print('minmax condition not acheived')
+            return
+
+        stale_list = []
+        if len(self._cache_comb) > 0:
+            agg_g = None
+            for cc in self._cache_comb:
+                agg_g = add_weights(agg_g, multiply_weights(cc[1], cc[2]))
+                for l in cc[0]:
+                    if l in list(self._desired_data_dist.keys()):
+                        self.labels_apply_nums[l] += cc[2]
+                cc[2] *= 0.98 # @TODO add this to hyperparams
+                if cc[2] < 0.001:
+                    stale_list.append(cc)
+            # remove stale gradients from the data structure
+            for sl in stale_list:
+                self._cache_comb.remove(sl)
+            
+            # aggregate weights
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
+
+            # do training
+            for _ in range(iteration):
+                self._weights = add_weights(self._weights, agg_g)
+                new_weights = self.fit_w_lr_to(self, 1, lr)
+                grads = gradients(self._weights, new_weights)
+                self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self._hyperparams['apply-rate']))
+                for l in list(self._local_data_dist.keys()):
+                    self.labels_apply_nums[l] += self.local_weight  # @TODO would this make the gradient apply stop at some point?
+
+        # else:
+        #     for _ in range(iteration):
+        #         self._weights = self.fit_w_lr_to(self, 1, lr)
+        print(self.labels_apply_nums)
+        K.clear_session()
+
 
 class LimitedMomentumClient(SimularityDelegationClient):
     """
@@ -1374,16 +1765,23 @@ class LimitedMomentumClient(SimularityDelegationClient):
         K.clear_session()
 
 class LimitedVariantMomentumClient(SimularityDelegationClient):
+    """
+    LimitedVariant + 
+        we do not let the differenct btw. max & min number of times a label is applied above some threshold
+    """
     def __init__(self, *args):
         super().__init__(*args)
         self._cache_comb = []  # (label_set, gradient, staleness)
+        self._cache_comb.append([set(self._local_data_dist.keys()), 0, 0])
         self.cache_comb_decay_total_updates = 0  
         self.init_weights = copy.deepcopy(self._weights)
         self.lr_fac_min = 1
-        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
         self.desired_prob = {}
-        for l in unknown_set:
-            self.desired_prob[l] = 1./len(unknown_set)
+        for l in self._desired_data_dist.keys():
+            self.desired_prob[l] = 1./len(self._desired_data_dist.keys())
+        self.labels_apply_nums = {}
+        for l in self._desired_data_dist.keys():
+            self.labels_apply_nums[l] = 0
 
     def delegate(self, other, epoch, iteration=1):
         if not self.decide_delegation(other):
@@ -1396,32 +1794,33 @@ class LimitedVariantMomentumClient(SimularityDelegationClient):
 
         new_weights = self.fit_w_lr_to(other, 1, lr)
         grads = gradients(self._weights, new_weights)
-        if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
-            # update cache
-            found_subsets = [] # smaller or equal
-            found_supersets = [] # bigger
-            for c in range(len(self._cache_comb)):
-                if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
-                    found_subsets.append(c)
-                elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
-                        len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
-                    found_supersets.append(c)
 
-            # overwrite found subsets (e.g. [0,1,2] + [0,1] -> [0,1,2])
-            if len(found_supersets) == 0:
-                if len(found_subsets) != 0:
-                    for c in sorted(found_subsets, reverse=True):
-                        del self._cache_comb[c]
-                self._cache_comb.append([set(other._local_data_dist.keys()), grads, 0])
+        # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
+        # update cache
+        found_subsets = [] # smaller or equal
+        found_supersets = [] # bigger
+        for c in range(len(self._cache_comb)):
+            if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
+                found_subsets.append(c)
+            elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
+                    len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
+                found_supersets.append(c)
 
-            else: # @TODO this is where I'm not too sure about
-                for c in found_supersets:
-                    self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
+        # overwrite found subsets (e.g. [0,1,2] + [0,1] -> [0,1,2])
+        if len(found_supersets) == 0:
+            if len(found_subsets) != 0:
+                for c in sorted(found_subsets, reverse=True):
+                    del self._cache_comb[c]
+            self._cache_comb.append([set(other._local_data_dist.keys()), grads, 0])
+
+        else: # @TODO this is where I'm not too sure about
+            for c in found_supersets:
+                self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
 
         # remove stale gradients
         remove_list = []
         for cc in self._cache_comb:
-            if cc[2] > 3:
+            if cc[2] > 25:
                 remove_list.append(cc)
         for r in remove_list:
             self._cache_comb.remove(r)
@@ -1437,20 +1836,27 @@ class LimitedVariantMomentumClient(SimularityDelegationClient):
                 not_covered_labels.remove(l)
         # print(not_covered_labels)
 
+        # update gradients for local
+        new_weights = self.fit_w_lr_to(self, 1, lr)
+        grads = gradients(self._weights, new_weights)
+        for c in self._cache_comb:
+            if c[0] == set(self._local_data_dist.keys()):
+                c[1] = grads
+                c[2] = 0
+
+        #@TODO labels_apply_nums 가 너무 하나씩 바뀜. 한번에 보고 걸러야 함.
+        
         if len(not_covered_labels)/len(self._desired_data_dist) <= 0.2:
             agg_g = None
-            fac_sum = 0
-            remove_list = [] # list of stale gradients
-            for cc in self._cache_comb:
-                fac = np.exp(-7 * (1-get_sim_even(self.desired_prob, cc[0])))
+            for cc in self._cache_comb: # Only apply gradients that doesn't make minmax exceed given thres.
+                fac = np.exp(-8*JSD(get_even_prob(cc[0]), self._desired_data_dist, self._num_classes))
                 agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
-                fac_sum += fac
-                cc[2] += 1
-            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate']/(len(self._cache_comb)*(fac_sum)))
+            if agg_g == None:
+                K.clear_session()
+                return
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
             # do training
-            for _ in range(iteration):
-                self._weights = add_weights(self._weights, agg_g)
-                self._weights = self.fit_w_lr_to(self, 1, lr)
+            self._weights = add_weights(self._weights, agg_g)
         # else:
         #     for _ in range(iteration):
         #         self._weights = self.fit_w_lr_to(self, 1, lr)
@@ -1537,9 +1943,10 @@ class LimitedVariantMinMaxMomentumClient(SimularityDelegationClient):
                 c[1] = grads
                 c[2] = 0
 
+        #@TODO labels_apply_nums 가 너무 하나씩 바뀜. 한번에 보고 걸러야 함.
+        
         if len(not_covered_labels)/len(self._desired_data_dist) <= 0.2:
             agg_g = None
-            remove_list = [] # list of stale gradients
             print("---------")
             for cc in self._cache_comb: # Only apply gradients that doesn't make minmax exceed given thres.
                 after_labels_apply_nums = copy.deepcopy(self.labels_apply_nums)
@@ -1548,22 +1955,22 @@ class LimitedVariantMinMaxMomentumClient(SimularityDelegationClient):
                         after_labels_apply_nums[l] += 1
                 max_label = max(after_labels_apply_nums.values())
                 min_label = min(after_labels_apply_nums.values())
-                print(cc[0])
+                # print(cc[0])
                 if max_label - min_label < 25:
-                    fac = np.exp(-8*JSD(get_even_prob(cc[0]), self.desired_prob, self._num_classes))
+                    fac = np.exp(-8*JSD(get_even_prob(cc[0]), self._desired_data_dist, self._num_classes))
                     print(fac)
                     if fac <= 0:
                         continue
                     agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
-                    cc[2] += 1
                     self.labels_apply_nums = copy.deepcopy(after_labels_apply_nums)                    
                 else:
                     print('not applied: {}'.format(self.labels_apply_nums))
+                cc[2] += 1 # @TODO just changed this. staleness should be applied regardless of how many times it actually got applied
 
             if agg_g == None:
                 K.clear_session()
                 return
-            agg_g = multiply_weights(agg_g, 6*self._hyperparams['apply-rate']/(len(self._cache_comb)))
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
             # do training
             self._weights = add_weights(self._weights, agg_g)
         # else:

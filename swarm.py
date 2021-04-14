@@ -6,6 +6,9 @@ import copy
 import pickle
 import data_process as dp
 import datetime
+import logging
+import numpy as np
+from tqdm import tqdm
 
 # data frame column names for encounter data
 TIME_START="time_start"
@@ -36,6 +39,7 @@ class Swarm():
         self.test_data_provider = test_data_provider
         compile_config = {'loss': 'mean_squared_error', 'metrics': ['accuracy']}
         train_config = {'batch_size': hyperparams['batch-size'], 'shuffle': True}
+        self.hyperparams = hyperparams
 
         self.train_data_provider = dp.DataProvider(x_train, y_train)
         self.num_data_per_label_in_client = num_data_per_label_in_client
@@ -83,7 +87,7 @@ class Swarm():
                 np.random.shuffle(target_labels_not_in_train_set)
                 target_labels = np.concatenate((target_labels_not_in_train_set[:num_unknown_label_per_client],
                                                 np.array(local_data_labels)))
-
+                logging.info('client {} target: {}'.format(i, target_labels))
                 tmp = [num_data_per_label_in_client] * len(local_data_labels)
                 # x_train_client, y_train_client = self.train_data_provider.fetch(dict(zip(local_data_labels, tmp)))
                 x_train_client, y_train_client = dp.filter_data_by_labels_with_numbers(x_train, y_train, dict(zip(local_data_labels, tmp)))
@@ -99,6 +103,21 @@ class Swarm():
                                     compile_config,
                                     train_config,
                                     hyperparams))
+
+                # central server for classical federated learning simulation
+                if i == 0:
+                    self.central_server = client_class(1000,
+                                                model_fn,
+                                                opt_fn,
+                                                copy.deepcopy(pretrain_model_weight),
+                                                x_train_client,
+                                                y_train_client,
+                                                self.train_data_provider,
+                                                self.test_data_provider,
+                                                target_labels,  
+                                                compile_config,
+                                                train_config,
+                                                hyperparams)
         else:
             self._clients = []
             for i in range(num_clients):
@@ -114,6 +133,21 @@ class Swarm():
                                     compile_config,
                                     train_config,
                                     hyperparams))
+                
+                # central server for classical federated learning simulation
+                if i == 0:
+                    self.central_server = client_class(-1,
+                                                model_fn,
+                                                opt_fn,
+                                                copy.deepcopy(pretrain_model_weight),
+                                                from_swarm._clients[i]._x_train,
+                                                from_swarm._clients[i]._y_train_orig,
+                                                from_swarm.train_data_provider,
+                                                from_swarm.test_data_provider,
+                                                list(from_swarm._clients[i]._desired_data_dist.keys()), 
+                                                compile_config,
+                                                train_config,
+                                                hyperparams)
         
         self.hist = {} # history per client over time
 
@@ -219,6 +253,32 @@ class Swarm():
                 print(" ----  remaining time: {}".format(rem))  
 
             K.clear_session()
+        
+        if self._clients[0].is_federated():
+            print('start federated simulation')
+            self.hist['encountered_clients'] = {}
+            for c in self._clients:
+                self.hist['encountered_clients'][c._id_num] = c.encountered_clients
+
+            cur_time = 0
+            self.hist['clients'] = {}
+            for c in self._clients:
+                self.hist['clients'][c._id_num] = []
+            for _ in tqdm(range(self.hyperparams['num-rounds'])):
+                updates = []
+                for c in self._clients:
+                    c._weights = self.central_server._weights
+                    c._weights = c.fit_to(c, 1)
+                    hist = c.federated_eval()
+                    if c._id_num ==0 :
+                        print(hist[1])
+                    self.hist['clients'][c._id_num].append((cur_time, hist, 0))
+                    updates.append(c._weights)
+                agg_weights = list()
+                for weights_list_tuple in zip(*updates):
+                    agg_weights.append(np.array([np.average(np.array(w), axis=0) for w in zip(*weights_list_tuple)]))
+                self.central_server._weights = agg_weights
+                cur_time += self.hyperparams['time-per-round']
 
     def register_table(self, *args):
         print('no table used in this class')

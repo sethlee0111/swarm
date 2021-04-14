@@ -1,5 +1,5 @@
 {
-    "dataset": "mnist",
+    "dataset": "opportunity-uci",
     "mobility-model": "levy-walk",
     "client-num": 45,
     "local-set-size": 2,
@@ -7,22 +7,20 @@
     "goal-set-size": 5,
     "local-data-points": 120,
     "noise-percentage": 50,
-    "district-9": [[1,2], [3,4], [5,6],
-                    [7,8], [9,0], [1,2],
-                    [4,5], [6,7], [8,9]],
+    "test-data-per-label": 0,
     "strategies": {
         "local": false,
         "greedy-sim": false,
+        "jsd-greedy-sim": false,
         "greedy-no-sim": false,
         "nodup-momentum": false,
         "momentum": false,
         "jsd-momentum": false,
-        "federated": true,
-        "jsd-local-inc-momentum": false,
+        "jsd-local-inc-stale-momentum": true,
         "limited-variant-minmax-momentum": false,
         "momentum-wo-decay": false
     },
-    "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
+    "pretrained-model": "pretrained/deepConvLSTM_pretrained_20p.pickle",
     "pretrain-setup": {
         "learning-rate": 0.001,
         "data-size": 3600,
@@ -30,18 +28,18 @@
         "batch-size": 50
     },
     "enc-exp-config":{
-        "encounter-data-file": "encounter_data/levy_walk_client_45_epi_500_dur_50.pickle",
+        "encounter-data-file": "encounter_data/levy_walk_client_45_epi_2000_dur_50.pickle",
         "send-duration": 0.1,
         "train-duration": 2,
         "max-delegations": 1
     },
     "hyperparams" : {
-        "orig-lr": 0.01,
+        "orig-lr": 0.0005,
         "batch-size": 50,
         "kappa": 7,
         "offset": 0.96,
         "apply-rate": 3,
-        "test-data-per-label": 800,
+        "test-data-per-label": 0,
         "evaluation-metrics": "loss-and-accuracy",
         "similarity-threshold": 0.2
     }

@@ -43,13 +43,17 @@ def get_even_prob(lst):
         dist[l] = 1./len(lst)
     return dist
     
-def get_kl_div(dist_dict_1, dist_dict_2, num_classes):
+def get_kl_div(d1, d2, num_classes):
     kl_div = 0
+    dist_dict_1 = copy.deepcopy(d1)
+    dist_dict_2 = copy.deepcopy(d2)
     for l in range(num_classes):
         if l not in dist_dict_1:
-            dist_dict_1[l] = 0.00001
+            dist_dict_1[l] = 1e-09
         if l not in dist_dict_2:
-            dist_dict_2[l] = 0.00001
+            dist_dict_2[l] = 1e-09
+    # print(dist_dict_1)
+    # print(dist_dict_2)
     for k in dist_dict_1.keys():
         if k in dist_dict_2:
             kl_div += dist_dict_1[k] * np.log(dist_dict_1[k]/dist_dict_2[k])
@@ -58,16 +62,18 @@ def get_kl_div(dist_dict_1, dist_dict_2, num_classes):
     return kl_div
 
 def JSD(dist_dict_1, dist_dict_2, num_classes):
+    d1 = copy.deepcopy(dist_dict_1)
+    d2 = copy.deepcopy(dist_dict_2)
     for l in range(num_classes):
-        if l not in dist_dict_1:
-            dist_dict_1[l] = 1e-09
-        if l not in dist_dict_2:
-            dist_dict_2[l] = 1e-09
+        if l not in d1:
+            d1[l] = 1e-09
+        if l not in d2:
+            d2[l] = 1e-09
     dist_dict_m = {}
-    for l in dist_dict_1.keys():
-        dist_dict_m[l] = (dist_dict_1[l] + dist_dict_2[l])/2
-    return (get_kl_div(dist_dict_1, dist_dict_m, num_classes) + \
-            get_kl_div(dist_dict_2, dist_dict_m, num_classes))/2
+    for l in d1.keys():
+        dist_dict_m[l] = (d1[l] + d2[l])/2
+    return (get_kl_div(d1, dist_dict_m, num_classes) + \
+            get_kl_div(d2, dist_dict_m, num_classes))/2
 
 def get_sim_even(probs, labels):
         dist_dict = {}

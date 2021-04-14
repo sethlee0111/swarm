@@ -1,6 +1,6 @@
 {
-    "dataset": "mnist",
-    "mobility-model": "levy-walk",
+    "dataset": "cifar",
+    "mobility-model": "sigcomm2009",
     "client-num": 45,
     "local-set-size": 2,
     "local-data-size": 180,
@@ -11,13 +11,14 @@
     "local-data-points": 120,
     "noise-percentage": 50,
     "strategies": {
-        "momentum": true,
-        "local": true,
-        "momentum-wo-decay": false,
-        "greedy-sim": true,
-        "greedy-no-sim": true
+        "local": false,
+        "jsd-greedy-sim": true,
+        "greedy-no-sim": false,
+        "momentum": false,
+        "jsd-momentum": true,
+        "jsd-local-inc-stale-momentum": true
     },
-    "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
+    "pretrained-model": "pretrained/pretrained_model_big_cnn_cifar_local_updates_epochs_100_data_20000_preprocess.pickle",
     "pretrain-setup": {
         "learning-rate": 0.01,
         "data-size": 3600,
@@ -25,17 +26,17 @@
         "batch-size": 50
     },
     "enc-exp-config":{
-        "encounter-data-file": "encounter_data/levy_walk_toy_example.pickle",
-        "send-duration": 0.1,
-        "train-duration": 2,
-        "max-delegations": 6
+        "encounter-data-file": "encounter_data/sigcomm2009_c45_full.pickle",
+        "send-duration": 0.01,
+        "train-duration": 0.1,
+        "max-delegations": 1
     },
     "hyperparams" : {
-        "orig-lr": 0.01,
+        "orig-lr": 0.0001,
         "batch-size": 50,
-        "kappa": 7,
+        "kappa": 14,
         "offset": 0.96,
-        "apply-rate": 1,
+        "apply-rate": 8,
         "test-data-per-label": 800,
         "evaluation-metrics": "loss-and-accuracy",
         "similarity-threshold": 0.2

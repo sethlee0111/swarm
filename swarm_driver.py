@@ -11,7 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import models as custom_models
-from get_dataset import get_mnist_dataset, get_cifar_dataset
+from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
 from clients import get_client_class, LocalClient, GreedySimClient, GreedyNoSimClient, MomentumClient, MomentumWithoutDecayClient
 import pickle
 import argparse
@@ -19,25 +19,52 @@ from swarm import Swarm
 import data_process as dp
 from swarm_utils import get_time
 import data_process as dp
+import boto3
+from cfg_utils import setup_env, LOG_FOLDER, FIG_FOLDER, HIST_FOLDER
+from pathlib import PurePath, Path
+import logging
+
+# hyperparams for uci dataset
+SLIDING_WINDOW_LENGTH = 24
+SLIDING_WINDOW_STEP = 12
 
 def main():
+    setup_env()
+
     # parse arguments
     parser = argparse.ArgumentParser(description='set params for simulation')
     parser.add_argument('--seed', dest='seed',
                         type=int, default=0, help='use pretrained weights')
 
-    parser.add_argument('--out', dest='out_file',
-                        type=str, default='log.pickle', help='log history output')
+    parser.add_argument('--tag', dest='tag',
+                        type=str, default='default_tag', help='tag')
     parser.add_argument('--cfg', dest='config_file',
                         type=str, default='toy_realworld_mnist_cfg.json', help='name of the config file')
-    parser.add_argument('--draw_graph', dest='graph_file',
-                        type=str, default=None, help='name of the output graph filename') 
+    parser.add_argument('--draw_graph', action='store_true')
 
     parsed = parser.parse_args()
 
-    if parsed.config_file == None or parsed.out_file == None:
-        print('Config file and output diretory has to be specified. Run \'python delegation_swarm_driver.py -h\' for help/.')
+    if parsed.config_file == None or parsed.tag == None:
+        print('Config file and the tag has to be specified. Run \'python delegation_swarm_driver.py -h\' for help/.')
+        
+    LOG_FILE_PATH = Path(LOG_FOLDER, parsed.tag + '.log')
+    if LOG_FILE_PATH.exists():
+        ans = input("Simulation under the same tag already exists. Do you want to proceed? [y/N]: ")
+        if not (ans == 'y' or ans == 'Y'):
+            print('exit simulation.')
+            exit()
+    try:
+        with open('configs/workstation_info.json', 'rb') as f:
+            wsinfo_json = f.read()
+        wsinfo = json.loads(wsinfo_json)
+        wsinfo['workstation-name']
+    except:
+        print("create file \'configs/workstation_info.json\'")
 
+    logging.basicConfig(filename=LOG_FILE_PATH, filemode='w', 
+                        format='%(name)s - %(levelname)s - %(message)s',
+                        level=logging.INFO)
+    
     np.random.seed(parsed.seed)
     tf.compat.v1.set_random_seed(parsed.seed)
 
@@ -45,6 +72,11 @@ def main():
     with open(parsed.config_file, 'rb') as f:
         config_json = f.read()
     config = json.loads(config_json)
+
+    logging.info('-----------------------<config file>-----------------------')
+    for k in config:  
+        logging.info(str(k + ':'))
+        logging.info('    ' + str(config[k]))
 
     if config['dataset'] == 'mnist':
         num_classes = 10
@@ -55,6 +87,11 @@ def main():
         num_classes = 10
         model_fn = custom_models.get_big_cnn_cifar_model
         x_train, y_train_orig, x_test, y_test_orig = get_cifar_dataset()
+    elif config['dataset'] == 'opportunity-uci':
+        model_fn = custom_models.get_deep_conv_lstm_model
+        x_train, y_train_orig, x_test, y_test_orig = get_opp_uci_dataset('data/opportunity-uci/oppChallenge_gestures.data',
+                                                                         SLIDING_WINDOW_LENGTH,
+                                                                         SLIDING_WINDOW_STEP)
     else:
         print("invalid dataset name")
         return
@@ -101,7 +138,7 @@ def main():
 
     hyperparams = config['hyperparams']
 
-    test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, 800)
+    test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, config['hyperparams']['test-data-per-label'])
 
     test_swarms = []
     swarm_names = []
@@ -121,7 +158,7 @@ def main():
                        config['local-data-size'],
                        enc_exp_config,
                        hyperparams
-                      )
+                       )
 
     for k in config['strategies'].keys():
         if config['strategies'][k]:
@@ -159,33 +196,53 @@ def main():
         print(end - start)
         hists[swarm_names[i]] = (test_swarms[i].hist)
 
-        log_filename = 'logs/' + 'partial_{}_'.format(i) + parsed.out_file
+        hist_file_path = PurePath(HIST_FOLDER, 'partial_{}_'.format(i) + parsed.tag + '.pickle')
         if i > 0:
-            os.remove('logs/' + 'partial_{}_'.format(i-1) + parsed.out_file)
+            os.remove(PurePath(HIST_FOLDER, 'partial_{}_'.format(i-1) + parsed.tag + '.pickle'))
         if i == len(test_swarms) - 1:
-            log_filename = 'logs/' + parsed.out_file
-        with open(log_filename, 'wb') as handle:
+            hist_file_path = PurePath(HIST_FOLDER, parsed.tag + '.pickle')
+        with open(hist_file_path, 'wb') as handle:
             pickle.dump(hists, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    if parsed.graph_file != None:
+    if parsed.draw_graph:
         print('drawing graph...')
         matplotlib.rcParams['pdf.fonttype'] = 42
         matplotlib.rcParams['ps.fonttype'] = 42
 
         processed_hists = {}
         for k in hists.keys():
+            # if 'federated' in k:
+            #     continue
             t, acc = get_accs_over_time(hists[k], 'clients')
             processed_hists[k] = {}
             processed_hists[k]['times'] = t
             processed_hists[k]['accs'] = acc
 
         for k in processed_hists.keys():
+            # if 'federated' in k:
+            #     continue
             plt.plot(np.array(processed_hists[k]['times']), np.array(processed_hists[k]['accs']), lw=1.2)
         plt.legend(list(processed_hists.keys()))
-        plt.ylabel("Accuracy")
+        if hyperparams['evaluation-metrics'] == 'f1-score-weighted':
+            plt.ylabel("F1-score")
+        else:
+            plt.ylabel("Accuracy")
         plt.xlabel("Time")
-        plt.savefig(parsed.graph_file)
+        graph_file_path = PurePath(FIG_FOLDER, parsed.tag + '.pdf')
+        plt.savefig(graph_file_path)
         plt.close()
+
+    logging.info('Simulation completed successfully.')
+
+    # upload to S3 storage
+    client = boto3.client('s3')
+    S3_BUCKET_NAME = 'opfl-sim-models'
+    upload_log_path = PurePath(wsinfo['workstation-name'], 'logs/' + parsed.tag + '.log')
+    client.upload_file(str(LOG_FILE_PATH), S3_BUCKET_NAME, str(upload_log_path))
+    upload_hist_path = PurePath(wsinfo['workstation-name'], 'hists/' + parsed.tag + '.pickle')
+    client.upload_file(str(hist_file_path), S3_BUCKET_NAME, str(upload_hist_path))
+    upload_graph_path = PurePath(wsinfo['workstation-name'], 'figs/' + parsed.tag + '.pdf')
+    client.upload_file(str(graph_file_path), S3_BUCKET_NAME, str(upload_graph_path))
 
 def get_accs_over_time(loaded_hist, key):
     loss_diff_at_time = []
@@ -196,7 +253,6 @@ def get_accs_over_time(loaded_hist, key):
             if t != 0:
                 loss_diff_at_time.append((t, loaded_hist[key][k][i][1][1] - loaded_hist[key][k][i-1][1][1]))
             i += 1
-    lst = len(loss_diff_at_time)
     loss_diff_at_time.sort(key=lambda x: x[0])
 
     # concatenate duplicate time stamps
@@ -206,14 +262,12 @@ def get_accs_over_time(loaded_hist, key):
             ldat_nodup[-1] = (ldat_nodup[-1][0], ldat_nodup[-1][1] + lt[1])
         else:
             ldat_nodup.append(lt)
-    print(ldat_nodup)
     times = []
     loss_list = []
     times.append(0)
     # get first accuracies
     accum = []
     for c in loaded_hist[key].keys():
-        print(loaded_hist[key][c])
         accum.append(loaded_hist[key][c][0][1][1])
         
     loss_list.append(sum(accum)/len(accum))

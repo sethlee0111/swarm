@@ -11,11 +11,13 @@
     "local-data-points": 120,
     "noise-percentage": 50,
     "strategies": {
-        "momentum": true,
-        "local": true,
+        "local": false,
         "momentum-wo-decay": false,
         "greedy-sim": true,
-        "greedy-no-sim": true
+        "greedy-no-sim": false,
+        "momentum": false,
+        "jsd-momentum": true,
+        "limited-variant-minmax-momentum": true
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
@@ -28,14 +30,14 @@
         "encounter-data-file": "encounter_data/sigcomm2009_c45_full.pickle",
         "send-duration": 0.1,
         "train-duration": 2,
-        "max-delegations": 2
+        "max-delegations": 1
     },
     "hyperparams" : {
         "orig-lr": 0.01,
         "batch-size": 50,
         "kappa": 7,
         "offset": 0.9,
-        "apply-rate": 1,
+        "apply-rate": 6,
         "test-data-per-label": 800,
         "evaluation-metrics": "loss-and-accuracy",
         "similarity-threshold": 0.2
