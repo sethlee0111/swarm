@@ -40,7 +40,9 @@ def main():
     parser.add_argument('--draw_graph', dest='graph_file',
                         type=str, default=None, help='name of the output graph filename')
     parser.add_argument('--seed', dest='seed',
-                    type=int, default=0, help='use pretrained weights')              
+                    type=int, default=0, help='use pretrained weights')
+    parser.add_argument('--global', dest='global',
+                    type=int, default=0, help='report accuracies of global models for greedy-sim and greedy-no-sim')     
 
     parsed = parser.parse_args()
 
@@ -104,6 +106,7 @@ def main():
                             copy.deepcopy(pretrained_model_weight),
                             x_train_client,
                             y_train_client,
+                            train_data_provider,
                             test_data_provider,
                             config['goal-set'],
                             compile_config,
@@ -134,16 +137,32 @@ def main():
 
     # run simulation
     candidates = np.arange(0,10)
-    for i in range(len(config['intervals'])):
-        print('simulating range {} of {}'.format(i+1, len(config['intervals'])))
-        for _ in tqdm(range(config['intervals'][i])):
+    if len(config['intervals']) != len(config['label-sets']):
+        raise ValueError('length of intervals and label-sets should be the same: {} != {}'.format(config['intervals'], config['label-sets']))
+    
+    try:
+        repeat = config['repeat']
+    except:
+        repeat = 1
+
+    try:
+        same_repeat = config['same-repeat']
+    except:
+        same_repeat = False
+
+    if same_repeat:
+        enc_clients = [] # list of 'other' clients our device is encountering
+        one_cycle_length = 0
+        for i in range(len(config['intervals'])):
+            one_cycle_length += config['intervals'][i]
+        for k in range(one_cycle_length):
             # set labels
             rn = np.random.rand(1)
             if rn > config['noise-percentage']/100.0:  # not noise
                 local_labels = config['label-sets'][i]
             else:   # noise
                 np.random.shuffle(candidates)
-                local_labels = copy.deepcopy(candidates[:len(config['local-set'])])
+                local_labels = copy.deepcopy(candidates[:config['noise-label-set-size']])
             label_conf = {}
             for ll in local_labels:
                 label_conf[ll] = (int) (config['number-of-data-points']/len(local_labels))
@@ -151,30 +170,71 @@ def main():
             # print(label_conf)
             x_other, y_other = train_data_provider.peek(label_conf)
 
-            for ck in clients.keys():
-                other = get_client_class(ck)(123,   # random id
-                                            model_fn,
-                                            opt_fn,
-                                            copy.deepcopy(pretrained_model_weight),
-                                            x_other,
-                                            y_other,
-                                            test_data_provider,
-                                            config['goal-set'],
-                                            compile_config,
-                                            train_config,
-                                            hyperparams)
-                clients[ck].delegate(other, 1, 2)
-                hist = clients[ck].eval()
-                if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
-                    logs[ck]['loss'].append(hist[0])
-                    logs[ck]['accuracy'].append(hist[1])
-                elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
-                    logs[ck]['f1-score'].append(hist)
-                elif config['hyperparams']['evaluation-metrics'] == 'split-f1-score-weighted':
-                    for labels in config['hyperparams']['split-test-labels']:
-                        logs[ck]['f1: ' + str(labels)].append(hist[str(labels)])
-                else:
-                    ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
+            enc_clients.append(
+                get_client_class(ck)(123,   # random id
+                                    model_fn,
+                                    opt_fn,
+                                    copy.deepcopy(pretrained_model_weight),
+                                    x_other,
+                                    y_other,
+                                    train_data_provider,
+                                    test_data_provider,
+                                    config['goal-set'],
+                                    compile_config,
+                                    train_config,
+                                    hyperparams)
+            )
+
+    for j in range(repeat):
+        ii = -1
+        for i in range(len(config['intervals'])):
+            print('simulating range {} of {} in repetition {} of {}'.format(i+1, len(config['intervals']), j+1, repeat))
+            for _ in tqdm(range(config['intervals'][i])):
+                # set labels
+                rn = np.random.rand(1)
+                if rn > config['noise-percentage']/100.0:  # not noise
+                    local_labels = config['label-sets'][i]
+                else:   # noise
+                    np.random.shuffle(candidates)
+                    local_labels = copy.deepcopy(candidates[:config['noise-label-set-size']])
+                label_conf = {}
+                for ll in local_labels:
+                    label_conf[ll] = (int) (config['number-of-data-points']/len(local_labels))
+
+                # print(label_conf)
+                x_other, y_other = train_data_provider.peek(label_conf)
+
+                # run for different approaches: local, greedy, ...
+                ii += 1
+                for ck in clients.keys():
+                    if not same_repeat:
+                        other = get_client_class(ck)(123,   # random id
+                                                    model_fn,
+                                                    opt_fn,
+                                                    copy.deepcopy(pretrained_model_weight),
+                                                    x_other,
+                                                    y_other,
+                                                    train_data_provider,
+                                                    test_data_provider,
+                                                    config['goal-set'],
+                                                    compile_config,
+                                                    train_config,
+                                                    hyperparams)
+                        clients[ck].delegate(other, 1, 1)
+                    else:
+                        clients[ck].delegate(enc_clients[ii], 1, 1)
+                        
+                    hist = clients[ck].eval()
+                    if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
+                        logs[ck]['loss'].append(hist[0])
+                        logs[ck]['accuracy'].append(hist[1])
+                    elif config['hyperparams']['evaluation-metrics'] == 'f1-score-weighted':
+                        logs[ck]['f1-score'].append(hist)
+                    elif config['hyperparams']['evaluation-metrics'] == 'split-f1-score-weighted':
+                        for labels in config['hyperparams']['split-test-labels']:
+                            logs[ck]['f1: ' + str(labels)].append(hist[str(labels)])
+                    else:
+                        ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
     with open(parsed.out_file, 'wb') as handle:
         pickle.dump(logs, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -209,7 +269,8 @@ def main():
             y_label = 'Accuracy'
         elif key == 'f1-score':
             y_label = 'F1-score'
-        plt.title(parsed.graph_file)
+        # plt.ylim(0.9, 0.940)
+        # plt.title(parsed.graph_file)
         plt.ylabel(y_label)
         plt.xlabel("Encounters")
         plt.savefig(parsed.graph_file)

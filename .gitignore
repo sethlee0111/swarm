@@ -6,3 +6,7 @@ __pycache__/
 graphs/
 .vscode/
 data/
+logs/
+figs/
+controlled_exp/logs/
+controlled_exp/figs/

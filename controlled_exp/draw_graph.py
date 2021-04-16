@@ -10,7 +10,7 @@ def main():
     parser.add_argument('--out', dest='graph_file',
                         type=str, default='figs/figure.pdf', help='output figure name')
     parser.add_argument('--metrics', dest='metrics',
-                        type=str, default='configs/mnist_cfg.json', help='name of the config file')
+                        type=str, default='loss-and-accuracy', help='metrics')
 
     parsed = parser.parse_args()  
 
@@ -29,6 +29,7 @@ def main():
         for k in logs.keys():
             plt.plot(np.arange(0, len(logs[k][key])), np.array(logs[k][key]), lw=1.2)
         plt.legend(list(logs.keys()))
+        # plt.ylim(0.9, 0.935)
         plt.ylabel(key)
         plt.xlabel("encounters")
         plt.savefig(parsed.graph_file)

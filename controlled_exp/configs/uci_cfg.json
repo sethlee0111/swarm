@@ -1,24 +1,28 @@
 {
     "dataset": "opportunity-uci",
-    "intervals": [100, 100, 100],
+    "intervals": [200, 200],
     "local-set": [1,5],
+    "repeat": 2,
     "goal-set": [1,5,7,11,17],
-    "label-sets": [[7,11,17],[17,8,9],[12,13,14]],
+    "label-sets": [[7,11], [17,9]],
     "number-of-data-points": 150,
-    "noise-percentage": 20,
+    "noise-percentage": 50,
+    "noise-label-set-size": 3,
     "strategies": {
-        "momentum": true,
-        "local": true,
-        "greedy-sim": true,
-        "greedy-no-sim": true
+        "local": false,
+        "jsd-greedy-sim": true,
+        "greedy-no-sim": false,
+        "momentum": false,
+        "jsd-momentum": false,
+        "jsd-local-inc-stale-momentum": true
     },
     "pretrained-model": "../pretrained/deepConvLSTM_pretrained_less_1_5_7_11_17_50p.pickle",
     "hyperparams" : {
-        "orig-lr": 0.00005,
+        "orig-lr": 0.0005,
         "batch-size": 50,
         "kappa": 18,
         "offset": 0.96,
-        "apply-rate": 1,
+        "apply-rate": 10,
         "test-data-per-label": 0,
         "evaluation-metrics": "f1-score-weighted",
         "similarity-threshold": 0.2

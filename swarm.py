@@ -279,6 +279,8 @@ class Swarm():
                     agg_weights.append(np.array([np.average(np.array(w), axis=0) for w in zip(*weights_list_tuple)]))
                 self.central_server._weights = agg_weights
                 cur_time += self.hyperparams['time-per-round']
+                del updates
+                K.clear_session()
 
     def register_table(self, *args):
         print('no table used in this class')
