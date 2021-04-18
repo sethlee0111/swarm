@@ -26,8 +26,8 @@
     },
     "enc-exp-config":{
         "encounter-data-file": "encounter_data/levy_walk_client_45_epi_2000_dur_50.pickle",
-        "communication-time": 0.1,
-        "train-time-per-step": 2,
+        "communication-time": 0.6,
+        "train-time-per-step": 0.3,
         "max-epochs": 3
     },
     "hyperparams" : {
