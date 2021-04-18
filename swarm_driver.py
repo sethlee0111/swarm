@@ -1,5 +1,7 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import tensorflow as tf
+tf.get_logger().setLevel('ERROR')
 import tensorflow.keras as keras
 from tensorflow.keras import backend as K
 from timeit import default_timer as timer
@@ -9,7 +11,6 @@ import datetime
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-import tensorflow as tf
 import models as custom_models
 from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
 from clients import get_client_class, LocalClient, GreedySimClient, GreedyNoSimClient, MomentumClient, MomentumWithoutDecayClient
@@ -40,7 +41,6 @@ def main():
                         type=str, default='default_tag', help='tag')
     parser.add_argument('--cfg', dest='config_file',
                         type=str, default='toy_realworld_mnist_cfg.json', help='name of the config file')
-    parser.add_argument('--draw_graph', action='store_true')
 
     parsed = parser.parse_args()
 
@@ -207,33 +207,32 @@ def main():
         with open(hist_file_path, 'wb') as handle:
             pickle.dump(hists, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    if parsed.draw_graph:
-        print('drawing graph...')
-        matplotlib.rcParams['pdf.fonttype'] = 42
-        matplotlib.rcParams['ps.fonttype'] = 42
+    print('drawing graph...')
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
 
-        processed_hists = {}
-        for k in hists.keys():
-            # if 'federated' in k:
-            #     continue
-            t, acc = get_accs_over_time(hists[k], 'clients')
-            processed_hists[k] = {}
-            processed_hists[k]['times'] = t
-            processed_hists[k]['accs'] = acc
+    processed_hists = {}
+    for k in hists.keys():
+        # if 'federated' in k:
+        #     continue
+        t, acc = get_accs_over_time(hists[k], 'clients')
+        processed_hists[k] = {}
+        processed_hists[k]['times'] = t
+        processed_hists[k]['accs'] = acc
 
-        for k in processed_hists.keys():
-            # if 'federated' in k:
-            #     continue
-            plt.plot(np.array(processed_hists[k]['times']), np.array(processed_hists[k]['accs']), lw=1.2)
-        plt.legend(list(processed_hists.keys()))
-        if hyperparams['evaluation-metrics'] == 'f1-score-weighted':
-            plt.ylabel("F1-score")
-        else:
-            plt.ylabel("Accuracy")
-        plt.xlabel("Time")
-        graph_file_path = PurePath(FIG_FOLDER, parsed.tag + '.pdf')
-        plt.savefig(graph_file_path)
-        plt.close()
+    for k in processed_hists.keys():
+        # if 'federated' in k:
+        #     continue
+        plt.plot(np.array(processed_hists[k]['times']), np.array(processed_hists[k]['accs']), lw=1.2)
+    plt.legend(list(processed_hists.keys()))
+    if hyperparams['evaluation-metrics'] == 'f1-score-weighted':
+        plt.ylabel("F1-score")
+    else:
+        plt.ylabel("Accuracy")
+    plt.xlabel("Time")
+    graph_file_path = PurePath(FIG_FOLDER, parsed.tag + '.pdf')
+    plt.savefig(graph_file_path)
+    plt.close()
 
     logging.info('Simulation completed successfully.')
 

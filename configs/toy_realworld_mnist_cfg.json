@@ -3,41 +3,40 @@
     "mobility-model": "levy-walk",
     "client-num": 45,
     "local-set-size": 2,
-    "local-data-size": 180,
+    "local-data-size": 150,
     "goal-set-size": 5,
-    "district-9": [[1,2], [3,4], [5,6],
-                  [7,8], [9,0], [2,3],
-                  [4,5], [6,7], [8,9]],
-    "local-data-points": 120,
+    "local-data-points": 150,
     "noise-percentage": 50,
     "strategies": {
-        "momentum": true,
         "local": true,
-        "momentum-wo-decay": false,
-        "greedy-sim": true,
-        "greedy-no-sim": true
+        "federated": true,
+        "greedy": true,
+        "opportunistic": true,
+        "gradient replay": true
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
-        "learning-rate": 0.01,
+        "learning-rate": 0.001,
         "data-size": 3600,
         "epochs": 50,
         "batch-size": 50
     },
     "enc-exp-config":{
         "encounter-data-file": "encounter_data/levy_walk_toy_example.pickle",
-        "send-duration": 0.1,
-        "train-duration": 2,
-        "max-delegations": 6
+        "communication-time": 0.6,
+        "train-time-per-step": 0.3,
+        "max-epochs": 3
     },
     "hyperparams" : {
         "orig-lr": 0.01,
         "batch-size": 50,
         "kappa": 7,
         "offset": 0.96,
-        "apply-rate": 1,
+        "apply-rate": 3,
         "test-data-per-label": 800,
         "evaluation-metrics": "loss-and-accuracy",
-        "similarity-threshold": 0.2
+        "similarity-threshold": 0.2,
+        "num-rounds": 250,
+        "time-per-round": 100
     }
 }

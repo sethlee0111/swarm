@@ -14,6 +14,7 @@ import models
 import model_distance as md
 from sklearn.metrics import f1_score
 from model_weight_utils import *
+from sklearn.utils import shuffle
 
 def get_client_class(class_name):
     if class_name == 'momentum':
@@ -79,6 +80,8 @@ def get_client_class(class_name):
         client_class = GreedyNoSimClient
     elif class_name == 'opportunistic':
         client_class = JSDGreedySimClient
+    elif class_name == 'opportunistic-weighted':
+        client_class = JSDWeightedGreedySimClient
     elif class_name == 'opportunistic (high thres.)':
         client_class = HighJSDGreedySimClient
     elif class_name == 'federated':
@@ -145,11 +148,12 @@ class DelegationClient:
         # print("--local_data: {}".format(np.unique(y_train)))
     
     def set_local_data(self, x_train, y_train):
-        self._x_train = x_train
         bc = np.bincount(y_train)
         ii = np.nonzero(bc)[0]
         self._local_data_dist = dict(zip(ii, bc[ii]/len(y_train)))
         self._local_data_count = dict(zip(ii, bc[ii]))
+        x_train, y_train = shuffle(x_train, y_train)
+        self._x_train = x_train
         self._y_train = keras.utils.to_categorical(y_train, self._num_classes)
     
     def replace_local_data(self, ratio, new_x_train, new_y_train_orig):
@@ -382,7 +386,7 @@ class DelegationClient:
     def get_train_config(self, client, epoch):
         tc = copy.deepcopy(self._train_config)
         tc['steps_per_epoch'] = 1
-        tc['epoch'] = 1
+        tc['epochs'] = epoch
         tc['x'] = client._x_train
         tc['y'] = client._y_train
         tc['verbose'] = 0
@@ -556,8 +560,27 @@ class JSDGreedySimClient(JSDSimularityDelegationClient):
             return
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
         for _ in range(iteration):
-            self._weights = self.fit_to(other, 1)
-            self._weights = self.fit_to(self, 1)
+            self._weights = self.fit_to(other, epoch)
+            self._weights = self.fit_to(self, epoch)
+
+class JSDWeightedGreedySimClient(JSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def delegate(self, other, epoch, iteration):
+        if not self.decide_delegation(other):
+            return
+        # print("greedy sim encorporate with {}".format(other._local_data_dist))
+        for _ in range(iteration):
+            fac = np.exp(-8*JSD(get_even_prob(set(other._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
+            update = self.fit_to(other, epoch)
+            agg = multiply_weights(update, fac)
+            self._weights = add_weights(self._weights, agg)
+
+            fac = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
+            update = self.fit_to(self, epoch)
+            agg = multiply_weights(update, fac)
+            self._weights = add_weights(self._weights, agg)
 
 class HighJSDGreedySimClient(HighJSDSimularityDelegationClient):
     def __init__(self, *args):
