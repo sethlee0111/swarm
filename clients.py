@@ -341,11 +341,7 @@ class DelegationClient:
     
     def fit_to(self, other, epoch):
         model = self._get_model()
-        self._train_config['epochs'] = 1
-        self._train_config['x'] = other._x_train
-        self._train_config['y'] = other._y_train
-        self._train_config['verbose'] = 0
-        model.fit(**self._train_config)
+        model.fit(**self.get_train_config(other, epoch))
         weights = copy.deepcopy(model.get_weights())
         K.clear_session()
         del model
@@ -368,11 +364,7 @@ class DelegationClient:
 
     def fit_weights_to(self, weights, other, epoch):
         model = self._get_model_from_weights(weights)
-        self._train_config['epochs'] = 1
-        self._train_config['x'] = other._x_train
-        self._train_config['y'] = other._y_train
-        self._train_config['verbose'] = 0
-        model.fit(**self._train_config)
+        model.fit(**self.get_train_config(other, epoch))
         weights = copy.deepcopy(model.get_weights())
         K.clear_session()
         del model
@@ -380,16 +372,21 @@ class DelegationClient:
 
     def fit_w_lr_to(self, other, epoch, lr):
         model = self._get_model_w_lr(lr)
-        self._train_config['epochs'] = 1
-        self._train_config['x'] = other._x_train
-        self._train_config['y'] = other._y_train
-        self._train_config['verbose'] = 0
-        model.fit(**self._train_config)
+        model.fit(**self.get_train_config(other, epoch))
         weights = copy.deepcopy(model.get_weights())
         K.clear_session()
         self._post_fit_w_lr_to(other)
         del model
         return weights
+
+    def get_train_config(self, client, epoch):
+        tc = copy.deepcopy(self._train_config)
+        tc['steps_per_epoch'] = 1
+        tc['epoch'] = 1
+        tc['x'] = client._x_train
+        tc['y'] = client._y_train
+        tc['verbose'] = 0
+        return tc
     
     def _post_fit_w_lr_to(self, other):
         pass
@@ -523,8 +520,8 @@ class GreedyNoSimClient(DelegationClient):
 
     def delegate(self, other, epoch, iteration):
         for _ in range(iteration):
-            self._weights = self.fit_to(other, 1)
-            self._weights = self.fit_to(self, 1)
+            self._weights = self.fit_to(other, epoch)
+            self._weights = self.fit_to(self, epoch)
 
 class GreedySimClient(SimularityDelegationClient):
     def __init__(self, *args):
@@ -571,8 +568,8 @@ class HighJSDGreedySimClient(HighJSDSimularityDelegationClient):
             return
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
         for _ in range(iteration):
-            self._weights = self.fit_to(other, 1)
-            self._weights = self.fit_to(self, 1)
+            self._weights = self.fit_to(other, epoch)
+            self._weights = self.fit_to(self, epoch)
 
 class KLGreedyOnlySimClient(KLSimularityDelegationClient):
     def __init__(self, *args):
@@ -593,10 +590,10 @@ class FederatedGreedyNoSimClient(DelegationClient):
     def delegate(self, other, *args):
         self.encountered_clients[other._id_num] = other
 
-    def federated_round(self, epochs):
+    def federated_round(self, epoch):
         updates = []
         for k in self.encountered_clients:
-            updates.append(self.fit_to(self.encountered_clients[k], 1))
+            updates.append(self.fit_to(self.encountered_clients[k], epoch))
         agg_weights = list()
         for weights_list_tuple in zip(*updates):
             agg_weights.append(np.array([np.average(np.array(w), axis=0) for w in zip(*weights_list_tuple)]))
@@ -1459,7 +1456,7 @@ class JSDLocalIncStaleMomentumClient(JSDSimularityDelegationClient):
 
         lr = self._hyperparams['orig-lr']
 
-        new_weights = self.fit_w_lr_to(other, 1, lr)
+        new_weights = self.fit_w_lr_to(other, epoch, lr)
         grads = gradients(self._weights, new_weights)
         # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
         # update cache
@@ -1501,7 +1498,7 @@ class JSDLocalIncStaleMomentumClient(JSDSimularityDelegationClient):
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
-                new_weights = self.fit_w_lr_to(self, 1, lr)
+                new_weights = self.fit_w_lr_to(self, epoch, lr)
                 grads = gradients(self._weights, new_weights)
                 self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self._hyperparams['apply-rate']))
 
@@ -1535,7 +1532,7 @@ class HighJSDLocalIncStaleMomentumClient(HighJSDSimularityDelegationClient):
 
         lr = self._hyperparams['orig-lr']
 
-        new_weights = self.fit_w_lr_to(other, 1, lr)
+        new_weights = self.fit_w_lr_to(other, epoch, lr)
         grads = gradients(self._weights, new_weights)
         # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
         # update cache
@@ -1577,7 +1574,7 @@ class HighJSDLocalIncStaleMomentumClient(HighJSDSimularityDelegationClient):
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
-                new_weights = self.fit_w_lr_to(self, 1, lr)
+                new_weights = self.fit_w_lr_to(self, epoch, lr)
                 grads = gradients(self._weights, new_weights)
                 self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self._hyperparams['apply-rate']))
 

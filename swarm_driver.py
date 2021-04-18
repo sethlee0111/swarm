@@ -127,9 +127,12 @@ def main():
     enc_config = config['enc-exp-config']
     enc_exp_config = {}
     enc_exp_config['data_file_name'] = enc_config['encounter-data-file']
-    enc_exp_config['send_duration'] = enc_config['send-duration']
-    enc_exp_config['delegation_duration'] = enc_config['train-duration']
-    enc_exp_config['max_delegations'] = enc_config['max-delegations']
+    enc_exp_config['communication_time'] = enc_config['communication-time']
+    enc_exp_config['train_time_per_step'] = enc_config['train-time-per-step']
+    try:
+        enc_exp_config['max_epochs'] = enc_config['max-epochs']
+    except:
+        raise ValueError('no \'max-epochs\' found in the config file (replaces max-delegations)')
     # if config['mobility-model'] == 'levy-walk':
     try:
         enc_exp_config['local_data_per_quad'] = config['district-9']

@@ -3,16 +3,16 @@
     "mobility-model": "levy-walk",
     "client-num": 45,
     "local-set-size": 2,
-    "local-data-size": 160,
+    "local-data-size": 150,
     "goal-set-size": 5,
-    "local-data-points": 120,
+    "local-data-points": 150,
     "noise-percentage": 50,
     "strategies": {
-        "local": true,
+        "local": false,
         "federated": true,
-        "greedy": true,
-        "opportunistic": true,
-        "gradient replay": true
+        "greedy": false,
+        "opportunistic": false,
+        "gradient replay": false
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
@@ -23,9 +23,9 @@
     },
     "enc-exp-config":{
         "encounter-data-file": "encounter_data/levy_walk_client_45_epi_2000_dur_50.pickle",
-        "send-duration": 0.1,
-        "train-duration": 2,
-        "max-delegations": 1
+        "communication-time": 0.1,
+        "train-time-per-step": 2,
+        "max-epochs": 1
     },
     "hyperparams" : {
         "orig-lr": 0.01,

@@ -164,7 +164,8 @@ class Swarm():
             self.hist['clients_local'][i] = []
             
         self._config = enc_exp_config
-        self.delegation_time = 2*self._config['send_duration'] + self._config['delegation_duration']
+        self.train_time_per_step = self._config['train_time_per_step']
+        self.communication_time = self._config['communication_time']
         self.enc_df = pd.read_pickle(self._config['data_file_name'])
         self.total_number_of_rows = self.enc_df.shape[0]
 
@@ -219,16 +220,22 @@ class Swarm():
             c1_delegate_to_c2 = c1.decide_delegation(c2)
             c2_delegate_to_c1 = c2.decide_delegation(c1)
             if c1_delegate_to_c2 or c2_delegate_to_c1:
-                num_delegations = (int)(t_left/self.delegation_time)
-                if num_delegations < 1:
+                # determine number of epochs
+                duration = 2 * self.communication_time
+                epochs = 0
+                while duration < t_left:
+                    duration += self.train_time_per_step
+                    epochs += 1
+                if epochs < 1:
                     continue
-                delegations = min(num_delegations, self._config['max_delegations'])
-                self.last_end_time[c1_idx] = cur_t + self.delegation_time * delegations
-                self.last_end_time[c2_idx] = cur_t + self.delegation_time * delegations
+                print(epochs)
+                epochs = min(epochs, self._config['max_epochs'])
+                self.last_end_time[c1_idx] = cur_t + duration
+                self.last_end_time[c2_idx] = cur_t + duration
 
             if c1_delegate_to_c2:
                 # model delegation
-                c1.delegate(c2, 1, delegations)
+                c1.delegate(c2, epochs, 1)
                 self.hist['total_delegations'] += 1
                 hist = c1.eval()
                 self.hist['clients'][c1_idx].append((self.last_end_time[c1_idx], hist, list(c2._local_data_dist.keys())))
@@ -236,7 +243,7 @@ class Swarm():
                 # self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
             if c2_delegate_to_c1:
                 # model delegation
-                c2.delegate(c1, 1, delegations)
+                c2.delegate(c1, epochs, 1)
                 self.hist['total_delegations'] += 1
                 hist = c2.eval()
                 self.hist['clients'][c2_idx].append((self.last_end_time[c2_idx], hist, list(c1._local_data_dist.keys()))) 
