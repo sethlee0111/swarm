@@ -230,6 +230,7 @@ class Swarm():
                     continue
                 # print(epochs)
                 epochs = min(epochs, self._config['max_epochs'])
+                duration = 2 * self.communication_time + epochs * self.train_time_per_step
                 self.last_end_time[c1_idx] = cur_t + duration
                 self.last_end_time[c2_idx] = cur_t + duration
 
