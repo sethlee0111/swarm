@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import models as custom_models
 from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
-from clients import get_client_class, LocalClient, GreedySimClient, GreedyNoSimClient, MomentumClient, MomentumWithoutDecayClient
+from clients import get_client_class
 import pickle
 import argparse
 from swarm import Swarm
@@ -130,9 +130,9 @@ def main():
     enc_exp_config['communication_time'] = enc_config['communication-time']
     enc_exp_config['train_time_per_step'] = enc_config['train-time-per-step']
     try:
-        enc_exp_config['max_epochs'] = enc_config['max-epochs']
+        enc_exp_config['max_rounds'] = enc_config['max-rounds']
     except:
-        raise ValueError('no \'max-epochs\' found in the config file (replaces max-delegations)')
+        raise ValueError('no \'max-rounds\' found in the config file (replaces max-delegations)')
     # if config['mobility-model'] == 'levy-walk':
     try:
         enc_exp_config['local_data_per_quad'] = config['district-9']

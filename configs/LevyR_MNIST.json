@@ -9,10 +9,10 @@
     "noise-percentage": 50,
     "strategies": {
         "local": false,
-        "federated": true,
-        "greedy": false,
-        "opportunistic": false,
-        "gradient replay": false
+        "federated": false,
+        "greedy": true,
+        "opportunistic": true,
+        "gradient replay": true
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
@@ -25,7 +25,7 @@
         "encounter-data-file": "encounter_data/levy_walk_client_45_epi_2000_dur_50.pickle",
         "communication-time": 0.6,
         "train-time-per-step": 0.3,
-        "max-epochs": 3
+        "max-rounds": 3
     },
     "hyperparams" : {
         "orig-lr": 0.01,

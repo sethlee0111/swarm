@@ -222,30 +222,32 @@ class Swarm():
             if c1_delegate_to_c2 or c2_delegate_to_c1:
                 # determine number of epochs
                 duration = 2 * self.communication_time
-                epochs = 0
+                rounds = 0
                 while duration < t_left:
-                    duration += self.train_time_per_step
-                    epochs += 1
-                if epochs < 1:
+                    duration += self.train_time_per_step + 2 * self.communication_time
+                    rounds += 1
+                if rounds < 1:
                     continue
                 # print(epochs)
-                epochs = min(epochs, self._config['max_epochs'])
-                duration = 2 * self.communication_time + epochs * self.train_time_per_step
+                rounds = min(rounds, self._config['max_rounds'])
+                duration = 2 * self.communication_time + rounds * (self.train_time_per_step + 2 * self.communication_time)
                 self.last_end_time[c1_idx] = cur_t + duration
                 self.last_end_time[c2_idx] = cur_t + duration
 
             if c1_delegate_to_c2:
-                # model delegation
-                c1.delegate(c2, epochs, 1)
-                self.hist['total_delegations'] += 1
+                for r in range(rounds):
+                    # model delegation
+                    c1.delegate(c2, 1, 1, r)
+                    self.hist['total_delegations'] += 1
                 hist = c1.eval()
                 self.hist['clients'][c1_idx].append((self.last_end_time[c1_idx], hist, list(c2._local_data_dist.keys())))
                 # self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1])) # @TODO this won't work with eval_f1_score
                 # self.hist['loss_min'].append(min(self.hist['loss_min'][-1], hist[1]))
             if c2_delegate_to_c1:
-                # model delegation
-                c2.delegate(c1, epochs, 1)
-                self.hist['total_delegations'] += 1
+                for r in range(rounds):
+                    # model delegation
+                    c2.delegate(c1, 1, 1, r)
+                    self.hist['total_delegations'] += 1
                 hist = c2.eval()
                 self.hist['clients'][c2_idx].append((self.last_end_time[c2_idx], hist, list(c1._local_data_dist.keys()))) 
                 # self.hist['loss_max'].append(max(self.hist['loss_max'][-1], hist[1]))
