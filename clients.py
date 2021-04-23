@@ -410,10 +410,10 @@ class LocalClient(DelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration):
+    def delegate(self, other, epoch, iteration, batch_num=0):
         # not in fact delegation at all
         for _ in range(iteration):
-            self._weights = self.fit_to(self, 1)
+            self._weights = self.fit_to(self, 1, batch_num)
 
     def decide_delegation(self, other):
         return True
@@ -436,10 +436,10 @@ class GreedyNoSimClient(DelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration):
-        for i in range(iteration):
-            self._weights = self.fit_to(other, epoch, i)
-            self._weights = self.fit_to(self, epoch, i)
+    def delegate(self, other, epoch, iteration, batch_num=0):
+        for _ in range(iteration):
+            self._weights = self.fit_to(other, epoch, batch_num)
+            self._weights = self.fit_to(self, epoch, batch_num)
 
 class GreedySimClient(SimularityDelegationClient):
     def __init__(self, *args):

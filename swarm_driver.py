@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import models as custom_models
 from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
-from clients import get_client_class
+from clients import get_client_class, LocalClient
 import pickle
 import argparse
 from swarm import Swarm
