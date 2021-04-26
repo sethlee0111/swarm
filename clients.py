@@ -31,10 +31,17 @@ def get_client_class(class_name):
         client_class = FederatedJSDGreedyClient
     elif class_name == 'gradient replay':
         client_class = JSDGradientReplayClient
-    # elif class_name == 'gradient replay test':
-    #     client_class = JSDLocalIncStaleMomentumClientTwo
+    elif class_name == 'gradient replay decay':
+        client_class = JSDGradientReplayDecayClient
     elif class_name == 'gradient replay (high thres.)':
         client_class = HighJSDLocalIncStaleMomentumClient
+    # 'cecay': Client-specific dECAY
+    elif class_name == 'greedy-cecay':
+        client_class = GreedyNoSimCecayClient
+    elif class_name == 'opportunistic-cecay':
+        client_class = JSDGreedySimCecayClient
+    elif class_name == 'gradient replay cecay':
+        client_class = JSDGradientReplayCecayClient
     else:
         return None
     return client_class
@@ -441,6 +448,30 @@ class GreedyNoSimClient(DelegationClient):
             self._weights = self.fit_to(other, epoch, batch_num)
             self._weights = self.fit_to(self, epoch, batch_num)
 
+class GreedyNoSimCecayClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.cecay_map = {}
+        self.cecay = self._hyperparams['cecay']
+
+    def delegate(self, other, epoch, iteration, batch_num=0):
+        if other._id_num in self.cecay_map:
+            self.cecay_map[other._id_num] *= self.cecay
+        else:
+            self.cecay_map[other._id_num] = 1
+        for _ in range(iteration):
+            fac = self.cecay_map[other._id_num]
+            update = self.fit_to(other, epoch, batch_num)
+            grads = gradients(self._weights, update)
+            agg = multiply_weights(grads, fac)
+            self._weights = add_weights(self._weights, agg)
+
+            fac = self.cecay_map[other._id_num]
+            update = self.fit_to(self, epoch, batch_num)
+            grads = gradients(self._weights, update)
+            agg = multiply_weights(grads, fac)
+            self._weights = add_weights(self._weights, agg)
+
 class GreedySimClient(SimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
@@ -476,6 +507,33 @@ class JSDGreedySimClient(JSDSimularityDelegationClient):
         for _ in range(iteration):
             self._weights = self.fit_to(other, epoch, batch_num)
             self._weights = self.fit_to(self, epoch, batch_num)
+
+class JSDGreedySimCecayClient(JSDSimularityDelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.cecay_map = {}
+        self.cecay = self._hyperparams['cecay']
+
+    def delegate(self, other, epoch, iteration, batch_num=0):
+        if not self.decide_delegation(other):
+            return
+        # print("greedy sim encorporate with {}".format(other._local_data_dist))
+        if other._id_num in self.cecay_map:
+            self.cecay_map[other._id_num] *= self.cecay
+        else:
+            self.cecay_map[other._id_num] = 1
+        for _ in range(iteration):
+            fac = self.cecay_map[other._id_num]
+            update = self.fit_to(other, epoch, batch_num)
+            grads = gradients(self._weights, update)
+            agg = multiply_weights(grads, fac)
+            self._weights = add_weights(self._weights, agg)
+
+            fac = self.cecay_map[other._id_num]
+            update = self.fit_to(self, epoch, batch_num)
+            grads = gradients(self._weights, update)
+            agg = multiply_weights(grads, fac)
+            self._weights = add_weights(self._weights, agg)
 
 class JSDWeightedGreedySimClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
@@ -596,70 +654,7 @@ class FilteredGreedySimClient(SimularityDelegationClient):
             self._weights = self.fit_to_labels_in_my_goal(other, 1)
             self._weights = self.fit_to(self, 1)
 
-class JSDMomentumClient(JSDSimularityDelegationClient):
-    def __init__(self, *args):
-        super().__init__(*args)
-        self._cache_comb = []  
-        self.cache_comb_decay_total_updates = 0  
-        self.init_weights = copy.deepcopy(self._weights)
-        self.lr_fac_min = 1
-        unknown_set = set(self._desired_data_dist.keys()).difference(set(self._local_data_dist.keys()))
-        self.desired_prob = {}
-        for l in unknown_set:
-            self.desired_prob[l] = 1./len(unknown_set)
-
-    def delegate(self, other, epoch, iteration=1):
-        if not self.decide_delegation(other):
-            return
-        drift = md.l2_distance_w(self._weights, self.init_weights)
-        xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
-        lr_fac = np.exp(xx)/(np.exp(xx) + 1)
-        self.lr_fac_min = min(self.lr_fac_min, lr_fac)
-        lr = self.lr_fac_min * self._hyperparams['orig-lr']
-
-        lr = self._hyperparams['orig-lr']
-
-        new_weights = self.fit_w_lr_to(other, 1, lr)
-        grads = gradients(self._weights, new_weights)
-        # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
-        # update cache
-        found_subsets = [] # smaller or equal
-        found_supersets = [] # bigger
-        for c in range(len(self._cache_comb)):
-            if (set(self._cache_comb[c][0])).issubset(set(other._local_data_dist.keys())):
-                found_subsets.append(c)
-            elif (set(self._cache_comb[c][0])).issuperset(set(other._local_data_dist.keys())) and \
-                    len(set(self._cache_comb[c][0]).difference(set(other._local_data_dist.keys()))) != 0:
-                found_supersets.append(c)
-
-        if len(found_supersets) == 0:
-            if len(found_subsets) != 0:
-                for c in sorted(found_subsets, reverse=True):
-                    del self._cache_comb[c]
-            self._cache_comb.append([set(other._local_data_dist.keys()), grads])
-
-        else: # @TODO this is where I'm not too sure about
-            for c in found_supersets:
-                self._cache_comb[c][1] = avg_weights(self._cache_comb[c][1], grads)
-
-        if len(self._cache_comb) > 0:
-            agg_g = None
-            for cc in self._cache_comb:
-                fac = np.exp(-8*JSD(get_even_prob(cc[0]), self.desired_prob, self._num_classes))
-                agg_g = add_weights(agg_g, multiply_weights(cc[1], fac))
-                # print(cc[0])
-            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
-            # do training
-            for _ in range(iteration):
-                self._weights = add_weights(self._weights, agg_g)
-                self._weights = self.fit_w_lr_to(self, 1, lr)
-        # else:
-        #     for _ in range(iteration):
-        #         self._weights = self.fit_w_lr_to(self, 1, lr)
-
-        K.clear_session()
-
-class JSDLocalIncStaleMomentumClientWithoutLocalStale(JSDSimularityDelegationClient):
+class JSDGradientReplayClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
         self._cache_comb = []  # list of (label_sets, gradients, weights)
@@ -671,6 +666,8 @@ class JSDLocalIncStaleMomentumClientWithoutLocalStale(JSDSimularityDelegationCli
         for l in unknown_set:
             self.desired_prob[l] = 1./len(unknown_set)
         self.local_weight = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist)), self._desired_data_dist, self._num_classes))
+        self.local_decay = 0.98
+        self.local_apply_rate = 1
 
     def delegate(self, other, epoch, iteration=1, batch_num=0):
         if not self.decide_delegation(other):
@@ -727,7 +724,8 @@ class JSDLocalIncStaleMomentumClientWithoutLocalStale(JSDSimularityDelegationCli
                 self._weights = add_weights(self._weights, agg_g)
                 new_weights = self.fit_w_lr_to(self, epoch, lr, batch_num)
                 grads = gradients(self._weights, new_weights)
-                self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self._hyperparams['apply-rate']))
+                self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self.local_apply_rate * self._hyperparams['apply-rate']))
+                self.local_apply_rate *= self.local_decay
 
         # else:
         #     for _ in range(iteration):
@@ -735,7 +733,7 @@ class JSDLocalIncStaleMomentumClientWithoutLocalStale(JSDSimularityDelegationCli
 
         K.clear_session()
 
-class JSDGradientReplayClient(JSDSimularityDelegationClient):
+class JSDGradientReplayCecayClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
         self._cache_comb = []  # list of (label_sets, gradients, weights)
@@ -750,9 +748,18 @@ class JSDGradientReplayClient(JSDSimularityDelegationClient):
         self.local_decay = 0.98
         self.local_apply_rate = 1
 
+        self.cecay_map = {}
+        self.cecay = self._hyperparams['cecay']
+
     def delegate(self, other, epoch, iteration=1, batch_num=0):
         if not self.decide_delegation(other):
             return
+
+        if other._id_num in self.cecay_map:
+            self.cecay_map[other._id_num] *= self.cecay
+        else:
+            self.cecay_map[other._id_num] = 1
+
         drift = md.l2_distance_w(self._weights, self.init_weights)
         xx = self._hyperparams['kappa']*(-(drift-self._hyperparams['offset']))
         lr_fac = np.exp(xx)/(np.exp(xx) + 1)
@@ -779,7 +786,7 @@ class JSDGradientReplayClient(JSDSimularityDelegationClient):
                 for c in sorted(found_subsets, reverse=True):
                     del self._cache_comb[c]
             weight = np.exp(-8*JSD(get_even_prob(set(other._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
-            self._cache_comb.append([set(other._local_data_dist.keys()), grads, weight])
+            self._cache_comb.append([set(other._local_data_dist.keys()), grads, self.cecay_map[other._id_num] * weight])
 
         else: # @TODO this is where I'm not too sure about
             for c in found_supersets:
