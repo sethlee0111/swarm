@@ -83,6 +83,11 @@ class DelegationClient:
         self._evaluation_metrics = hyperparams['evaluation-metrics']
         self._similarity_threshold = hyperparams['similarity-threshold']
 
+        self.last_batch_num = {} # keeps the last batch num of the other client that this client was trained on
+        self.total_num_batches = int(len(y_train) / hyperparams['batch-size'])
+        if len(y_train) / hyperparams['batch-size'] - self.total_num_batches != 0:
+            raise ValueError('batch-size has to divide local data size without remainders')
+
         ratio_per_label = 1./(len(target_labels))
         self._desired_data_dist = {}
         for l in target_labels:
@@ -201,7 +206,7 @@ class DelegationClient:
         return hist
 
     def delegate(self, client, epoch, iteration):
-        raise NotImplementedError("")
+        raise NotImplementedError('')
 
     def receive(self, client, coeff):
         """receive the model from the other client. Does not affect the other's model"""
@@ -293,9 +298,21 @@ class DelegationClient:
                 accum += min(d1[k], d2[k])
         return accum
 
-    def fit_to(self, other, epoch, batch_number=None):
+    def get_batch_num(self, other):
+        if other._id_num in self.last_batch_num:
+            self.last_batch_num[other._id_num] = (self.last_batch_num[other._id_num] + 1) % self.total_num_batches
+        else:
+            self.last_batch_num[other._id_num] = 0
+        return self.last_batch_num[other._id_num]
+
+    def fit_to(self, other, epoch):
+        """
+        fit the model to others data for "epoch" epochs
+        one epoch only corresponds to a single batch
+        """
         model = self._get_model()
-        model.fit(**self.get_train_config(other, epoch))
+        
+        model.fit(**self.get_train_config(other, epoch, self.get_batch_num(other)))
         weights = copy.deepcopy(model.get_weights())
         K.clear_session()
         del model
@@ -324,9 +341,9 @@ class DelegationClient:
         del model
         return weights
 
-    def fit_w_lr_to(self, other, epoch, lr, batch_num=None):
+    def fit_w_lr_to(self, other, epoch, lr):
         model = self._get_model_w_lr(lr)
-        model.fit(**self.get_train_config(other, epoch, batch_num))
+        model.fit(**self.get_train_config(other, epoch, self.get_batch_num(other)))
         weights = copy.deepcopy(model.get_weights())
         K.clear_session()
         del model
@@ -392,6 +409,7 @@ class JSDSimularityDelegationClient(DelegationClient):
         super().__init__(*args)
 
     def get_similarity(self, other):
+        # print("other: {}".format(other._local_data_dist.keys()))
         return JSD(other._local_data_dist, self._desired_data_dist, self._num_classes)
     
     def decide_delegation(self, other):
@@ -443,10 +461,10 @@ class GreedyNoSimClient(DelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         for _ in range(iteration):
-            self._weights = self.fit_to(other, epoch, batch_num)
-            self._weights = self.fit_to(self, epoch, batch_num)
+            self._weights = self.fit_to(other, epoch)
+            self._weights = self.fit_to(self, epoch)
 
 class GreedyNoSimCecayClient(DelegationClient):
     def __init__(self, *args):
@@ -454,20 +472,20 @@ class GreedyNoSimCecayClient(DelegationClient):
         self.cecay_map = {}
         self.cecay = self._hyperparams['cecay']
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         if other._id_num in self.cecay_map:
             self.cecay_map[other._id_num] *= self.cecay
         else:
             self.cecay_map[other._id_num] = 1
         for _ in range(iteration):
             fac = self.cecay_map[other._id_num]
-            update = self.fit_to(other, epoch, batch_num)
+            update = self.fit_to(other, epoch)
             grads = gradients(self._weights, update)
             agg = multiply_weights(grads, fac)
             self._weights = add_weights(self._weights, agg)
 
             fac = self.cecay_map[other._id_num]
-            update = self.fit_to(self, epoch, batch_num)
+            update = self.fit_to(self, epoch)
             grads = gradients(self._weights, update)
             agg = multiply_weights(grads, fac)
             self._weights = add_weights(self._weights, agg)
@@ -500,13 +518,13 @@ class JSDGreedySimClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         if not self.decide_delegation(other):
             return
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
         for _ in range(iteration):
-            self._weights = self.fit_to(other, epoch, batch_num)
-            self._weights = self.fit_to(self, epoch, batch_num)
+            self._weights = self.fit_to(other, epoch)
+            self._weights = self.fit_to(self, epoch)
 
 class JSDGreedySimCecayClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
@@ -514,7 +532,7 @@ class JSDGreedySimCecayClient(JSDSimularityDelegationClient):
         self.cecay_map = {}
         self.cecay = self._hyperparams['cecay']
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         if not self.decide_delegation(other):
             return
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
@@ -524,13 +542,13 @@ class JSDGreedySimCecayClient(JSDSimularityDelegationClient):
             self.cecay_map[other._id_num] = 1
         for _ in range(iteration):
             fac = self.cecay_map[other._id_num]
-            update = self.fit_to(other, epoch, batch_num)
+            update = self.fit_to(other, epoch)
             grads = gradients(self._weights, update)
             agg = multiply_weights(grads, fac)
             self._weights = add_weights(self._weights, agg)
 
             fac = self.cecay_map[other._id_num]
-            update = self.fit_to(self, epoch, batch_num)
+            update = self.fit_to(self, epoch)
             grads = gradients(self._weights, update)
             agg = multiply_weights(grads, fac)
             self._weights = add_weights(self._weights, agg)
@@ -539,20 +557,20 @@ class JSDWeightedGreedySimClient(JSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         if not self.decide_delegation(other):
             return
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
         for _ in range(iteration):
             fac = np.exp(-8*JSD(get_even_prob(set(other._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
-            update = self.fit_to(other, epoch, batch_num)
+            update = self.fit_to(other, epoch)
             grads = gradients(self._weights, update)
             agg = multiply_weights(grads, fac*10)
             self._weights = add_weights(self._weights, agg)
             # print("{}: {}".format(set(other._local_data_dist.keys()), fac))
 
             fac = np.exp(-8*JSD(get_even_prob(set(self._local_data_dist.keys())), self._desired_data_dist, self._num_classes))
-            update = self.fit_to(self, epoch, batch_num)
+            update = self.fit_to(self, epoch)
             grads = gradients(self._weights, update)
             agg = multiply_weights(grads, fac*10)
             self._weights = add_weights(self._weights, agg)
@@ -561,13 +579,13 @@ class HighJSDGreedySimClient(HighJSDSimularityDelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         if not self.decide_delegation(other):
             return
         # print("greedy sim encorporate with {}".format(other._local_data_dist))
         for _ in range(iteration):
-            self._weights = self.fit_to(other, epoch, batch_num)
-            self._weights = self.fit_to(self, epoch, batch_num)
+            self._weights = self.fit_to(other, epoch)
+            self._weights = self.fit_to(self, epoch)
 
 class KLGreedyOnlySimClient(KLSimularityDelegationClient):
     def __init__(self, *args):
@@ -669,7 +687,7 @@ class JSDGradientReplayClient(JSDSimularityDelegationClient):
         self.local_decay = 0.98
         self.local_apply_rate = 1
 
-    def delegate(self, other, epoch, iteration=1, batch_num=0):
+    def delegate(self, other, epoch, iteration=1):
         if not self.decide_delegation(other):
             return
         drift = md.l2_distance_w(self._weights, self.init_weights)
@@ -680,7 +698,7 @@ class JSDGradientReplayClient(JSDSimularityDelegationClient):
 
         lr = self._hyperparams['orig-lr']
 
-        new_weights = self.fit_w_lr_to(other, epoch, lr, batch_num)
+        new_weights = self.fit_w_lr_to(other, epoch, lr)
         grads = gradients(self._weights, new_weights)
         # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
         # update cache
@@ -722,7 +740,7 @@ class JSDGradientReplayClient(JSDSimularityDelegationClient):
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
-                new_weights = self.fit_w_lr_to(self, epoch, lr, batch_num)
+                new_weights = self.fit_w_lr_to(self, epoch, lr)
                 grads = gradients(self._weights, new_weights)
                 self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self.local_apply_rate * self._hyperparams['apply-rate']))
                 self.local_apply_rate *= self.local_decay
@@ -751,7 +769,7 @@ class JSDGradientReplayCecayClient(JSDSimularityDelegationClient):
         self.cecay_map = {}
         self.cecay = self._hyperparams['cecay']
 
-    def delegate(self, other, epoch, iteration=1, batch_num=0):
+    def delegate(self, other, epoch, iteration=1):
         if not self.decide_delegation(other):
             return
 
@@ -768,7 +786,7 @@ class JSDGradientReplayCecayClient(JSDSimularityDelegationClient):
 
         lr = self._hyperparams['orig-lr']
 
-        new_weights = self.fit_w_lr_to(other, epoch, lr, batch_num)
+        new_weights = self.fit_w_lr_to(other, epoch, lr)
         grads = gradients(self._weights, new_weights)
         # if set(other._local_data_dist.keys()).issubset(set(self._desired_data_dist.keys())):
         # update cache
@@ -810,7 +828,7 @@ class JSDGradientReplayCecayClient(JSDSimularityDelegationClient):
             # do training
             for _ in range(iteration):
                 self._weights = add_weights(self._weights, agg_g)
-                new_weights = self.fit_w_lr_to(self, epoch, lr, batch_num)
+                new_weights = self.fit_w_lr_to(self, epoch, lr)
                 grads = gradients(self._weights, new_weights)
                 self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self.local_apply_rate * self._hyperparams['apply-rate']))
                 self.local_apply_rate *= self.local_decay

@@ -237,7 +237,7 @@ class Swarm():
             if c1_delegate_to_c2:
                 for r in range(rounds):
                     # model delegation
-                    c1.delegate(c2, 1, 1, r)
+                    c1.delegate(c2, 1, 1)
                     self.hist['total_delegations'] += 1
                 hist = c1.eval()
                 self.hist['clients'][c1_idx].append((self.last_end_time[c1_idx], hist, list(c2._local_data_dist.keys())))
@@ -246,7 +246,7 @@ class Swarm():
             if c2_delegate_to_c1:
                 for r in range(rounds):
                     # model delegation
-                    c2.delegate(c1, 1, 1, r)
+                    c2.delegate(c1, 1, 1)
                     self.hist['total_delegations'] += 1
                 hist = c2.eval()
                 self.hist['clients'][c2_idx].append((self.last_end_time[c2_idx], hist, list(c1._local_data_dist.keys()))) 

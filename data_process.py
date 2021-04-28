@@ -270,6 +270,8 @@ class DataProvider():
         # self.y_train = y_train[p]
     
     def fetch(self, labels):
+        raise NotImplementedError('the change in peek() function made this function obsolete')
+        # @WARNING: DO NOT use this method
         label_mask = np.zeros(self.total_data_size, dtype=bool)
         total_output_size = 0
         for l in labels.keys():
@@ -294,6 +296,35 @@ class DataProvider():
         return x_filtered, y_filtered
     
     def peek(self, labels):
+        p = np.random.permutation(len(self.x_train))
+        self.x_train = self.x_train[p]
+        self.y_train = self.y_train[p]
+
+        data_filter = np.zeros(self.total_data_size, dtype=bool)
+        label_mask = np.zeros(self.total_data_size, dtype=bool)
+        total_output_size = 0
+        for l in labels.keys():
+            total_output_size += labels[l]
+            cnt = 0
+            for i in range(self.total_data_size):
+                if self.mask_unused[i] and self.y_train[i] == l:
+                    label_mask[i] |= 1
+                    cnt += 1
+                    if cnt >= labels[l]:
+                        break
+            data_filter |= label_mask
+            # label_mask |= np.append(self.mask_unused[:i] & self.mask_per_label[l][:i], np.zeros(self.total_data_size-i, dtype=bool))
+
+        # data_filter = label_mask
+        x_filtered = self.x_train[data_filter]
+        y_filtered = self.y_train[data_filter]
+
+        if x_filtered.shape[0] != total_output_size or y_filtered.shape[0] != total_output_size:
+            raise ValueError("Dataset depleted. x: {}, y: {}".format(x_filtered.shape[0], y_filtered.shape[0]))
+        
+        return x_filtered, y_filtered
+
+    def peek_orig(self, labels):
         label_mask = np.zeros(self.total_data_size, dtype=bool)
         total_output_size = 0
         for l in labels.keys():
