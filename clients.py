@@ -435,10 +435,10 @@ class LocalClient(DelegationClient):
     def __init__(self, *args):
         super().__init__(*args)
 
-    def delegate(self, other, epoch, iteration, batch_num=0):
+    def delegate(self, other, epoch, iteration):
         # not in fact delegation at all
         for _ in range(iteration):
-            self._weights = self.fit_to(self, 1, batch_num)
+            self._weights = self.fit_to(self, 1)
 
     def decide_delegation(self, other):
         return True
