@@ -8,11 +8,14 @@
     "local-data-points": 150,
     "noise-percentage": 50,
     "strategies": {
-        "local": true,
-        "federated": true,
+        "local": false,
+        "federated": false,
         "greedy": true,
         "opportunistic": true,
-        "gradient replay": true
+        "gradient replay": true,
+        "greedy-cecay": false,
+        "opportunistic-cecay": false,
+        "gradient replay cecay": false
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
@@ -25,7 +28,7 @@
         "encounter-data-file": "encounter_data/levy_walk_toy_example.pickle",
         "communication-time": 0.6,
         "train-time-per-step": 0.3,
-        "max-epochs": 3
+        "max-rounds": 3
     },
     "hyperparams" : {
         "orig-lr": 0.01,
@@ -37,6 +40,7 @@
         "evaluation-metrics": "loss-and-accuracy",
         "similarity-threshold": 0.2,
         "num-rounds": 250,
-        "time-per-round": 100
+        "time-per-round": 100,
+        "cecay": 0.99
     }
 }

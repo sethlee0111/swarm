@@ -13,9 +13,9 @@
         "greedy": true,
         "opportunistic": true,
         "gradient replay": true,
-        "greedy-cecay": true,
-        "opportunistic-cecay": true,
-        "gradient replay cecay": true
+        "greedy-cecay": false,
+        "opportunistic-cecay": false,
+        "gradient replay cecay": false
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
