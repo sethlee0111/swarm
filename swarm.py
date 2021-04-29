@@ -174,6 +174,7 @@ class Swarm():
         self.hist['loss_min'] = []
         self.hist['total_delegations'] = 0
         self.hist['total_fr'] = 0
+        self.hist['encounters_and_exchanges'] = []
 
     def _evaluate_all(self):
         #  run one local updates each first
@@ -226,10 +227,10 @@ class Swarm():
                 while duration < t_left:
                     duration += self.train_time_per_step + 2 * self.communication_time
                     rounds += 1
+                rounds = min(rounds, self._config['max_rounds'])
+                self.hist['encounters_and_exchanges'].append(rounds)
                 if rounds < 1:
                     continue
-                # print(epochs)
-                rounds = min(rounds, self._config['max_rounds'])
                 duration = 2 * self.communication_time + rounds * (self.train_time_per_step + 2 * self.communication_time)
                 self.last_end_time[c1_idx] = cur_t + duration
                 self.last_end_time[c2_idx] = cur_t + duration
@@ -263,7 +264,7 @@ class Swarm():
                 print(" ----  remaining time: {}".format(rem))  
 
             K.clear_session()
-        
+        return
         if self._clients[0].is_federated():
             print('start federated simulation')
             self.hist['encountered_clients'] = {}
