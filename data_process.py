@@ -295,7 +295,7 @@ class DataProvider():
         
         return x_filtered, y_filtered
     
-    def peek(self, labels):
+    def peek_new(self, labels):
         p = np.random.permutation(len(self.x_train))
         self.x_train = self.x_train[p]
         self.y_train = self.y_train[p]
@@ -324,7 +324,7 @@ class DataProvider():
         
         return x_filtered, y_filtered
 
-    def peek_orig(self, labels):
+    def peek(self, labels):
         label_mask = np.zeros(self.total_data_size, dtype=bool)
         total_output_size = 0
         for l in labels.keys():
