@@ -10,9 +10,9 @@
     "strategies": {
         "local": false,
         "federated": false,
-        "greedy": true,
+        "greedy": false,
         "opportunistic": true,
-        "gradient replay": true
+        "gradient replay": false
     },
     "pretrained-model": "pretrained/test_base_2nn_mnist.pickle",
     "pretrain-setup": {
@@ -22,9 +22,9 @@
         "batch-size": 50
     },
     "enc-exp-config":{
-        "encounter-data-file": "encounter_data/levy_walk_client_45_epi_2000_dur_50.pickle",
-        "communication-time": 0.4,
-        "train-time-per-step": 0.2,
+        "encounter-data-file": "encounter_data/levy_walk_client_45_epi_1000_dur_50.pickle",
+        "communication-time": 0.2,
+        "train-time-per-step": 0.1,
         "max-rounds": 3
     },
     "hyperparams" : {
