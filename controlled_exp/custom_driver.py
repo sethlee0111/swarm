@@ -6,7 +6,7 @@ import json
 import tensorflow as tf
 import tensorflow.keras as keras
 from tensorflow.keras import backend as K
-from clients import get_client_class, LocalClient
+from clients import get_client_class, LocalClient, GreedySimClient, GreedyNoSimClient, MomentumClient, MomentumWithoutDecayClient
 import data_process as dp
 import models as custom_models
 import copy
@@ -40,9 +40,7 @@ def main():
     parser.add_argument('--draw_graph', dest='graph_file',
                         type=str, default=None, help='name of the output graph filename')
     parser.add_argument('--seed', dest='seed',
-                    type=int, default=0, help='use pretrained weights')
-    parser.add_argument('--global', dest='global',
-                    type=int, default=0, help='report accuracies of global models for greedy-sim and greedy-no-sim')     
+                    type=int, default=0, help='use pretrained weights')              
 
     parsed = parser.parse_args()
 
@@ -92,32 +90,29 @@ def main():
     # initialize delegation_clients for simulation
     clients = {}
     i = 0
-    for k in config['strategies'].keys():
-        if config['strategies'][k]:
-            client_class = get_client_class(k)
-            if client_class == None:
-                print("strategy name {} not defined".format(k))
-                return
+    exps = ['ST: 1', 'ST: 2', 'ST: 3', 'Alternate0']
+    for k in exps:
+        client_class = get_client_class('greedy-sim')
 
-            train_config = {}
-            c = client_class(i,
-                            model_fn,
-                            opt_fn,
-                            copy.deepcopy(pretrained_model_weight),
-                            x_train_client,
-                            y_train_client,
-                            train_data_provider,
-                            test_data_provider,
-                            config['goal-set'],
-                            compile_config,
-                            train_config,
-                            hyperparams)
-            clients[k] = c
-            i += 1
+        train_config = {}
+        c = client_class(i,
+                        model_fn,
+                        opt_fn,
+                        copy.deepcopy(pretrained_model_weight),
+                        x_train_client,
+                        y_train_client,
+                        train_data_provider,
+                        test_data_provider,
+                        config['goal-set'],
+                        compile_config,
+                        train_config,
+                        hyperparams)
+        clients[k] = c
+        i += 1
     
     # initialize logs
     logs = {}
-    for ck in clients.keys():
+    for ck in exps:
         logs[ck] = {}
         hist = clients[ck].eval()
         if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
@@ -135,6 +130,7 @@ def main():
         else:
             ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
+    # run simulation
     candidates = np.arange(0,10)
     if len(config['intervals']) != len(config['label-sets']):
         raise ValueError('length of intervals and label-sets should be the same: {} != {}'.format(config['intervals'], config['label-sets']))
@@ -170,7 +166,7 @@ def main():
             x_other, y_other = train_data_provider.peek(label_conf)
 
             enc_clients.append(
-                get_client_class(ck)(k,   # random id
+                get_client_class(ck)(123,   # random id
                                     model_fn,
                                     opt_fn,
                                     copy.deepcopy(pretrained_model_weight),
@@ -184,7 +180,6 @@ def main():
                                     hyperparams)
             )
 
-    unique_ids = 10000
     for j in range(repeat):
         ii = -1
         for i in range(len(config['intervals'])):
@@ -206,10 +201,18 @@ def main():
 
                 # run for different approaches: local, greedy, ...
                 ii += 1
-                unique_ids += 1
-                for ck in clients.keys():
+                for ck in exps:
                     if not same_repeat:
-                        other = get_client_class(ck)(unique_ids,   # random id
+                        ###
+                        if int(ck[-1]) == 0:
+                            if j < 1 and i*100+_ < 100:
+                                clients[ck]._similarity_threshold = 0.4
+                            else: 
+                                clients[ck]._similarity_threshold = 0.6
+                        else:
+                            clients[ck]._similarity_threshold = 0.2 * int(ck[-1])
+                        ###
+                        other = get_client_class('greedy-sim')(123,   # random id
                                                     model_fn,
                                                     opt_fn,
                                                     copy.deepcopy(pretrained_model_weight),
@@ -221,10 +224,8 @@ def main():
                                                     compile_config,
                                                     train_config,
                                                     hyperparams)
-                        for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
-                            clients[ck].delegate(other, 1, 1)
+                        clients[ck].delegate(other, 1, 1)
                     else:
-                        # for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
                         clients[ck].delegate(enc_clients[ii], 1, 1)
                         
                     hist = clients[ck].eval()
@@ -238,10 +239,6 @@ def main():
                             logs[ck]['f1: ' + str(labels)].append(hist[str(labels)])
                     else:
                         ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
-
-                    if i == len(config['intervals'])-1 and j == repeat-1:
-                        with open('weights/' + ck + '_last_weights.pickle', 'wb') as handle:
-                            pickle.dump(clients[ck]._weights , handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     with open(parsed.out_file, 'wb') as handle:
         pickle.dump(logs, handle, protocol=pickle.HIGHEST_PROTOCOL)

@@ -13,7 +13,7 @@ import copy
 import pickle
 import numpy as np
 from tqdm import tqdm
-from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset
+from get_dataset import get_mnist_dataset, get_cifar_dataset, get_opp_uci_dataset, get_cifar100_dataset
 import matplotlib.pyplot as plt
 import matplotlib
 
@@ -71,8 +71,13 @@ def main():
                                                                          SLIDING_WINDOW_LENGTH,
                                                                          SLIDING_WINDOW_STEP)
 
-    train_data_provider = dp.DataProvider(x_train, y_train_orig)
-    test_data_provider = dp.StableTestDataProvider(x_test, y_test_orig, config['test-data-per-label'])
+    elif config['dataset'] == 'cifar100':
+        model_fn = custom_models.get_bin_cnn_cifar_model
+        x_train, y_train_orig, x_test, y_test_orig = get_cifar100_dataset()
+        x_train_coarse, y_train_coarse_orig, y_test_coarse, y_test_coarse_orig = get_cifar100_dataset('coarse')
+
+    train_data_provider = dp.DataProvider(x_train, y_train_orig, config['local-task'])
+    test_data_provider = dp.Cifar100StableTestDataProvider(y_test_coarse, y_test_coarse_orig, config['test-data-per-label'], config['goal-tasks'])
 
     # get local dataset for clients
     client_label_conf = {}
@@ -136,9 +141,13 @@ def main():
             ValueError('invalid evaluation-metrics: {}'.format(config['hyperparams']['evaluation-metrics']))
 
     candidates = np.arange(0,10)
-    if len(config['intervals']) != len(config['label-sets']):
-        raise ValueError('length of intervals and label-sets should be the same: {} != {}'.format(config['intervals'], config['label-sets']))
+    if len(config['intervals']) != len(config['task-encounters']):
+        raise ValueError('length of intervals and task-encounters should be the same: {} != {}'.format(config['intervals'], config['task-encounters']))
     
+    all_labels = {}
+    for label in np.unique(y_test_orig):
+        all_labels[label] = config['number-of-data-points']/len(np.unique(y_test_orig))
+
     try:
         repeat = config['repeat']
     except:
@@ -155,19 +164,11 @@ def main():
         for i in range(len(config['intervals'])):
             one_cycle_length += config['intervals'][i]
         for k in range(one_cycle_length):
-            # set labels
-            rn = np.random.rand(1)
-            if rn > config['noise-percentage']/100.0:  # not noise
-                local_labels = config['label-sets'][i]
-            else:   # noise
-                np.random.shuffle(candidates)
-                local_labels = copy.deepcopy(candidates[:config['noise-label-set-size']])
-            label_conf = {}
-            for ll in local_labels:
-                label_conf[ll] = (int) (config['number-of-data-points']/len(local_labels))
+            label_conf = all_labels
 
             # print(label_conf)
-            x_other, y_other = train_data_provider.peek(label_conf)
+            rotated_train_data_provider = dp.DataProvider(x_train, y_train_orig, config['task-encounters'][i])
+            x_other, y_other = rotated_train_data_provider.peek(label_conf)
 
             enc_clients.append(
                 get_client_class(ck)(k,   # random id
@@ -176,7 +177,7 @@ def main():
                                     copy.deepcopy(pretrained_model_weight),
                                     x_other,
                                     y_other,
-                                    train_data_provider,
+                                    rotated_train_data_provider,
                                     test_data_provider,
                                     config['goal-set'],
                                     compile_config,
@@ -191,38 +192,29 @@ def main():
             print('simulating range {} of {} in repetition {} of {}'.format(i+1, len(config['intervals']), j+1, repeat))
             for _ in tqdm(range(config['intervals'][i])):
                 # set labels
-                rn = np.random.rand(1)
-                if rn > config['noise-percentage']/100.0:  # not noise
-                    local_labels = config['label-sets'][i]
-                else:   # noise
-                    np.random.shuffle(candidates)
-                    local_labels = copy.deepcopy(candidates[:config['noise-label-set-size']])
-                label_conf = {}
-                for ll in local_labels:
-                    label_conf[ll] = (int) (config['number-of-data-points']/len(local_labels))
+                label_conf = all_labels
 
-                # print(label_conf)
-                x_other, y_other = train_data_provider.peek(label_conf)
-
-                # run for different approaches: local, greedy, ...
+                task_num = config['task-encounters'][i][np.random.randint(len(config['task-encounters'][i]))]
+                rotated_train_data_provider = dp.DataProvider(x_train, y_train_orig, task_num)
+                x_other, y_other = rotated_train_data_provider.peek(label_conf)
                 ii += 1
                 unique_ids += 1
                 for ck in clients.keys():
                     if not same_repeat:
-                        other = get_client_class(ck)(unique_ids,   # random id
+                        other = get_client_class(ck)(100+task_num,   # random id
                                                     model_fn,
                                                     opt_fn,
                                                     copy.deepcopy(pretrained_model_weight),
                                                     x_other,
                                                     y_other,
-                                                    train_data_provider,
+                                                    rotated_train_data_provider,
                                                     test_data_provider,
                                                     config['goal-set'],
                                                     compile_config,
                                                     train_config,
                                                     hyperparams)
-                        for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
-                            clients[ck].delegate(other, 1, 1)
+                        # for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
+                        clients[ck].delegate(other, 1, 1)
                     else:
                         # for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
                         clients[ck].delegate(enc_clients[ii], 1, 1)
