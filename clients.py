@@ -42,6 +42,26 @@ def get_client_class(class_name):
         client_class = JSDGreedySimCecayClient
     elif class_name == 'gradient replay cecay':
         client_class = JSDGradientReplayCecayClient
+    elif class_name == 'greedy ':
+        client_class = OnlyOtherGreedyClient
+    elif class_name == 'oracle':
+        client_class = OracleClient
+    elif class_name == 'task-aware':
+        client_class = TaskAwareClient
+    elif class_name == 'compressed':
+        client_class = CompressedTaskAwareClient
+    elif class_name == 'compressed-v2':
+        client_class = V2CompressedTaskAwareClient
+    elif class_name == 'task-aware GR':
+        client_class = TaskAwareGradientReplayClient
+    ### CIFAR 100 versions
+    elif class_name == 'oracle ':
+        client_class = Cifar100OracleClient
+    elif class_name == 'compressed ':
+        client_class = CompressedCNNTaskAwareClient
+    elif class_name == 'compressed-v2 ':
+        client_class = V2CompressedCNNTaskAwareClient
+
     else:
         return None
     return client_class
@@ -82,6 +102,7 @@ class DelegationClient:
         self._hyperparams = hyperparams
         self._evaluation_metrics = hyperparams['evaluation-metrics']
         self._similarity_threshold = hyperparams['similarity-threshold']
+        self.task_num = train_data_provider.task_num
 
         self.last_batch_num = {} # keeps the last batch num of the other client that this client was trained on
         self.total_num_batches = int(len(y_train) / hyperparams['batch-size'])
@@ -101,6 +122,12 @@ class DelegationClient:
         # print("client {} initialize".format(_id))
         # print("--desired_data: {}".format(self._desired_data_dist.keys()))
         # print("--local_data: {}".format(np.unique(y_train)))
+
+    def set_task(self, task):
+        self.task = task
+
+    def get_task(self):
+        return self.task
     
     def set_local_data(self, x_train, y_train):
         bc = np.bincount(y_train)
@@ -109,6 +136,7 @@ class DelegationClient:
         self._local_data_count = dict(zip(ii, bc[ii]))
         x_train, y_train = shuffle(x_train, y_train)
         self._x_train = x_train
+        self._y_train_orig = y_train
         self._y_train = keras.utils.to_categorical(y_train, self._num_classes)
     
     def replace_local_data(self, ratio, new_x_train, new_y_train_orig):
@@ -177,6 +205,13 @@ class DelegationClient:
         self._weights = copy.deepcopy(model.get_weights())
         K.clear_session()
         return hist
+
+    def get_samples(self, data_size=1):
+        label_conf = {}
+        for l in self._local_data_dist:
+            label_conf[l] = data_size
+        sample_data_provider = dp.DataProvider(self._x_train, self._y_train_orig, 0)
+        return sample_data_provider.peek(label_conf)
 
     def _train_with_others_data(self, other, epoch):
         if epoch == 0:
@@ -275,6 +310,70 @@ class DelegationClient:
         model.set_weights(self._weights)
         self._compile_config['optimizer'] = self._opt_fn(lr=self._hyperparams['orig-lr'])
         model.compile(**self._compile_config)
+        return model
+
+    def _get_compressed_model(self):
+        model = self._model_fn(compressed_ver=1)
+        weights = copy.deepcopy(self._weights)
+        COMPRESSED_LAYER_SIZE = 30
+        a = np.arange(200)
+        choice = np.random.choice(a, COMPRESSED_LAYER_SIZE)
+
+        weights[-4] = weights[-4][:, choice]
+        weights[-3] = weights[-3][choice]
+        weights[-2] = weights[-2][choice, :]
+
+        model.set_weights(weights)
+        return model
+
+    def _get_v2_compressed_model(self):
+        model = self._model_fn(compressed_ver=2)
+        weights = copy.deepcopy(self._weights)
+        COMPRESSED_LAYER_SIZE = 50
+        a = np.arange(200)
+        choice = np.random.choice(a, COMPRESSED_LAYER_SIZE)
+
+        weights[0] = weights[0][:, choice]
+        weights[1] = weights[1][choice]
+        weights[2] = weights[2][choice, :]
+
+        COMPRESSED_LAYER_SIZE = 30
+        a = np.arange(200)
+        choice = np.random.choice(a, COMPRESSED_LAYER_SIZE)
+
+        weights[-4] = weights[-4][:, choice]
+        weights[-3] = weights[-3][choice]
+        weights[-2] = weights[-2][choice, :]
+
+        model.set_weights(weights)
+        return model
+
+    def _get_compressed_cnn_model(self):
+        model = self._model_fn(compressed_ver=1)
+        weights = copy.deepcopy(self._weights)
+        COMPRESSED_LAYER_SIZE = 128
+        a = np.arange(512)
+        choice = np.random.choice(a, COMPRESSED_LAYER_SIZE)
+
+        weights[-4] = weights[-4][:, choice]
+        weights[-3] = weights[-3][choice]
+        weights[-2] = weights[-2][choice, :]
+
+        model.set_weights(weights)
+        return model
+
+    def _get_v2_compressed_cnn_model(self):
+        model = self._model_fn(compressed_ver=2)
+        weights = copy.deepcopy(self._weights)
+        COMPRESSED_LAYER_SIZE = 64
+        a = np.arange(512)
+        choice = np.random.choice(a, COMPRESSED_LAYER_SIZE)
+
+        weights[-4] = weights[-4][:, choice]
+        weights[-3] = weights[-3][choice]
+        weights[-2] = weights[-2][choice, :]
+
+        model.set_weights(weights)
         return model
 
     def _get_model_from_weights(self, weights):
@@ -465,6 +564,190 @@ class GreedyNoSimClient(DelegationClient):
         for _ in range(iteration):
             self._weights = self.fit_to(other, epoch)
             self._weights = self.fit_to(self, epoch)
+
+class OracleClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def delegate(self, other, epoch, iteration):
+        if other._id_num == 100 + self.task_num:
+            for _ in range(iteration):
+                self._weights = self.fit_to(other, epoch)
+
+class Cifar100OracleClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def delegate(self, other, epoch, iteration):
+        mammals = {'fox': 34, 'porcupine': 63, 'possum': 64, 'raccoon': 66, 'skunk': 75}
+        flowers = {'orchid': 54, 'poppy': 63, 'rose': 70, 'sunflower': 82, 'tulip': 92}
+        # print(other.get_task().split('-')[0])
+        # print(other.get_task().split('-')[1])
+        if other.get_task().split('-')[0] in mammals.keys() and other.get_task().split('-')[1] in flowers.keys():
+            for _ in range(iteration):
+                self._weights = self.fit_to(other, epoch)
+
+class OnlyOtherGreedyClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def delegate(self, other, epoch, iteration):
+        for _ in range(iteration):
+            self._weights = self.fit_to(other, epoch)
+
+class TaskAwareClient(DelegationClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def fetch_model(self):
+        return self._get_model()
+
+    def get_logit_diff(self, other):
+        np.set_printoptions(precision=3, suppress=True)
+        model = self.fetch_model()
+        extractor = keras.Model(inputs=model.inputs,
+                        outputs=[layer.output for layer in model.layers])
+        other_x_samples, other_y_samples = other.get_samples()
+        this_x_samples, this_y_samples = self.get_samples()
+        other_x_samples = other_x_samples[np.argsort(other_y_samples)]
+        other_y_samples = np.sort(other_y_samples)
+        this_x_samples = this_x_samples[np.argsort(this_y_samples)]
+        this_y_samples = np.sort(this_y_samples)
+        if not np.any(other_y_samples == this_y_samples):
+            raise ValueError('something wrong with sampling!')
+        other_features = extractor(other_x_samples)
+        this_features = extractor(this_x_samples)
+        sums = []
+        for i in range(len(other_y_samples)):
+            diff = np.linalg.norm(np.array(other_features[-1][i]) - np.array(this_features[-1][i]))
+            sums.append(diff)
+            # print("LABEL: {} ---------------------".format(other_y_samples[i]))
+            # import matplotlib.pyplot as plt
+            # plt.imshow(this_x_samples[this_x_idx], cmap='gray')
+            # plt.show()
+            # import matplotlib.pyplot as plt
+            # plt.imshow(other_x_samples[i], cmap='gray')
+            # plt.show()
+            # print(np.array(this_features[-1][i]))
+            # print(np.array(other_features[-1][i]))
+            # print(diff)
+            # print(np.linalg.norm(np.array(other_features[-3][i]) - np.array(this_features[-3][this_x_idx])))
+        sums.sort()
+        # print(sums)
+        # MEDIAN_PERCENTAGE = 70
+        # lr_filtered_len = int((len(sums) * (1 - MEDIAN_PERCENTAGE / 100))/2)
+        # print(lr_filtered_len)
+        if len(sums) > 5:
+            sums = sums[-5:]
+
+        # compute consistency
+        dev = 0
+        for l in np.unique(other_y_samples):
+            mask = other_y_samples == l
+            other_features = extractor(other_x_samples[mask])
+            for out in other_features[-1]:
+                # print(out)
+                dev += np.array(out[0]-out[1])
+        dev /= len(np.unique(other_y_samples))
+        # print(dev)
+        
+        return sum(sums) / len(sums)
+
+    def decide_delegation(self, other):
+        # print('self-diff')
+        self_diff = self.get_logit_diff(self)
+        # self_diff = 1
+        # print('other-diff')
+        other_diff = self.get_logit_diff(other)
+        # print('task: {}, self: {}, other:{}, ratio: {}'.format(other.get_task(), self_diff, other_diff, other_diff/self_diff))
+        ratio = other_diff/self_diff
+        return ratio < self._hyperparams['task-threshold']
+
+    def delegate(self, other, epoch, iteration):
+        if self.decide_delegation(other):
+            for _ in range(iteration):
+                self._weights = self.fit_to(other, epoch)
+
+class CompressedTaskAwareClient(TaskAwareClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def fetch_model(self):
+        return self._get_compressed_model()
+
+    def decide_delegation(self, other):
+        self_diff = self.get_logit_diff(self)
+        other_diff = self.get_logit_diff(other)
+        # print('clinum: {}, self: {}, other:{}, \nratio: {}'.format(other._id_num, self_diff, other_diff, other_diff/self_diff))
+
+        ratio = other_diff/self_diff
+        return ratio < 1.3
+
+    def delegate(self, other, epoch, iteration):
+        if self.decide_delegation(other):
+            for _ in range(iteration):
+                self._weights = self.fit_to(other, epoch)
+
+class CompressedCNNTaskAwareClient(TaskAwareClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def fetch_model(self):
+        return self._get_compressed_cnn_model()
+
+    def decide_delegation(self, other):
+        self_diff = self.get_logit_diff(self)
+        other_diff = self.get_logit_diff(other)
+        # print('clinum: {}, self: {}, other:{}, \nratio: {}'.format(other._id_num, self_diff, other_diff, other_diff/self_diff))
+
+        ratio = other_diff/self_diff
+        return ratio < 1.3
+
+    def delegate(self, other, epoch, iteration):
+        if self.decide_delegation(other):
+            for _ in range(iteration):
+                self._weights = self.fit_to(other, epoch)
+
+class V2CompressedTaskAwareClient(TaskAwareClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def fetch_model(self):
+        return self._get_v2_compressed_model()
+
+    def decide_delegation(self, other):
+        self_diff = self.get_logit_diff(self)
+        other_diff = self.get_logit_diff(other)
+        # print('clinum: {}, self: {}, other:{}, \nratio: {}'.format(other._id_num, self_diff, other_diff, other_diff/self_diff))
+
+        ratio = other_diff/self_diff
+        return ratio < 1.2
+
+    def delegate(self, other, epoch, iteration):
+        if self.decide_delegation(other):
+            for _ in range(iteration):
+                self._weights = self.fit_w_lr_to(other, epoch, self._hyperparams['orig-lr'])
+
+
+class V2CompressedCNNTaskAwareClient(TaskAwareClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    def fetch_model(self):
+        return self._get_v2_compressed_cnn_model()
+
+    def decide_delegation(self, other):
+        self_diff = self.get_logit_diff(self)
+        other_diff = self.get_logit_diff(other)
+        # print('clinum: {}, self: {}, other:{}, \nratio: {}'.format(other._id_num, self_diff, other_diff, other_diff/self_diff))
+
+        ratio = other_diff/self_diff
+        return ratio < 1.2
+
+    def delegate(self, other, epoch, iteration):
+        if self.decide_delegation(other):
+            for _ in range(iteration):
+                self._weights = self.fit_w_lr_to(other, epoch, self._hyperparams['orig-lr'])
 
 class GreedyNoSimCecayClient(DelegationClient):
     def __init__(self, *args):
@@ -832,6 +1115,52 @@ class JSDGradientReplayCecayClient(JSDSimularityDelegationClient):
                 grads = gradients(self._weights, new_weights)
                 self._weights = add_weights(self._weights, multiply_weights(grads, self.local_weight * self.local_apply_rate * self._hyperparams['apply-rate']))
                 self.local_apply_rate *= self.local_decay
+
+        # else:
+        #     for _ in range(iteration):
+        #         self._weights = self.fit_w_lr_to(self, 1, lr)
+
+        K.clear_session()
+
+class TaskAwareGradientReplayClient(TaskAwareClient):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._cache_comb = []  # list of (gradients, weights)
+        self.cache_comb_decay_total_updates = 0  
+        self.init_weights = copy.deepcopy(self._weights)
+        self.lr_fac_min = 1
+        self.local_decay = 0.98
+        self.local_apply_rate = 1
+
+    def delegate(self, other, epoch, iteration=1):
+        if not self.decide_delegation(other):
+            return
+
+        weight = np.exp(-self.get_logit_diff(other))
+
+        lr = self._hyperparams['orig-lr']
+
+        new_weights = self.fit_w_lr_to(other, epoch, lr)
+        grads = gradients(self._weights, new_weights)
+        # update cache
+        self._cache_comb.append([grads, weight])
+
+        not_stale_list = []
+        if len(self._cache_comb) > 0:
+            agg_g = None
+            for cc in self._cache_comb:
+                agg_g = add_weights(agg_g, multiply_weights(cc[0], cc[1]))
+                cc[1] *= 0.3 # @TODO add this to hyperparams
+                if not cc[1] < 0.005:
+                    not_stale_list.append(cc)
+            self._cache_comb = not_stale_list
+            
+            # aggregate weights
+            agg_g = multiply_weights(agg_g, self._hyperparams['apply-rate'])
+
+            # do training
+            for _ in range(iteration):
+                self._weights = add_weights(self._weights, agg_g)
 
         # else:
         #     for _ in range(iteration):

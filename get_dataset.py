@@ -51,6 +51,28 @@ def get_cifar_dataset():
 
     return x_train, y_train_orig, x_test, y_test_orig
 
+def get_cifar100_dataset(label_mode='fine'):
+    img_rows, img_cols = 32, 32
+    # the data, split between train and test sets
+    (x_train, y_train_orig), (x_test, y_test_orig) = tf.keras.datasets.cifar100.load_data(label_mode=label_mode)
+
+    if K.image_data_format() == 'channels_first':
+        x_train = x_train.reshape(x_train.shape[0], 3, img_rows, img_cols)
+        x_test = x_test.reshape(x_test.shape[0], 3, img_rows, img_cols)
+        input_shape = (3, img_rows, img_cols)
+    else:
+        x_train = x_train.reshape(x_train.shape[0], img_rows, img_cols, 3)
+        x_test = x_test.reshape(x_test.shape[0], img_rows, img_cols, 3)
+        input_shape = (img_rows, img_cols, 3)
+    x_train = x_train.astype('float32')
+    x_test = x_test.astype('float32')
+    x_train /= 255
+    x_test /= 255
+    y_train_orig = y_train_orig.reshape(-1)
+    y_test_orig = y_test_orig.reshape(-1)
+
+    return x_train, y_train_orig, x_test, y_test_orig
+
 def get_opp_uci_dataset(filename, sliding_window_length, sliding_window_step):
     # from https://github.com/STRCWearlab/DeepConvLSTM
 

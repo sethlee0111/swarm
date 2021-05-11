@@ -15,11 +15,31 @@ NB_SENSOR_CHANNELS = 113
 NUM_UNITS_LSTM = 128
 NUM_CLASSES = 18
 
-def get_2nn_mnist_model():
+def get_2nn_mnist_model(compressed_ver=0):
+    if compressed_ver == 1:
+        return get_compressed_2nn_mnist_model()
+    elif compressed_ver == 2:
+        return get_v2_compressed_2nn_mnist_model()
     model = Sequential()
     model.add(Flatten(input_shape=(28,28,1)))
     model.add(Dense(200, activation='relu'))
     model.add(Dense(200, activation='relu'))
+    model.add(Dense(10, activation='softmax'))
+    return model
+
+def get_compressed_2nn_mnist_model():
+    model = Sequential()
+    model.add(Flatten(input_shape=(28,28,1)))
+    model.add(Dense(200, activation='relu'))
+    model.add(Dense(30, activation='relu'))
+    model.add(Dense(10, activation='softmax'))
+    return model
+
+def get_v2_compressed_2nn_mnist_model():
+    model = Sequential()
+    model.add(Flatten(input_shape=(28,28,1)))
+    model.add(Dense(50, activation='relu'))
+    model.add(Dense(30, activation='relu'))
     model.add(Dense(10, activation='softmax'))
     return model
 
@@ -51,6 +71,17 @@ def get_cnn_cifar_model():
     model.add(Dense(10, activation='softmax'))
     return model
 
+def get_bin_cnn_cifar_model():
+    model = Sequential()
+    model.add(Conv2D(32, (3, 3), activation='relu', input_shape=(32, 32, 3)))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(64, (3, 3), activation='relu'))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Flatten())
+    model.add(Dense(512, activation='relu'))
+    model.add(Dense(2, activation='softmax'))
+    return model
+
 def get_big_cnn_cifar_model():
     model = Sequential()
     model.add(Conv2D(32, (3, 3), padding='same',
@@ -73,6 +104,110 @@ def get_big_cnn_cifar_model():
     model.add(Activation('relu'))
     model.add(Dropout(0.5))
     model.add(Dense(10))
+    model.add(Activation('softmax'))
+    return model
+
+def get_big_bin_cnn_cifar_model():
+    model = Sequential()
+    model.add(Conv2D(32, (3, 3), padding='same',
+                    input_shape=(32,32,3)))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())
+    model.add(Dense(512))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(2))
+    model.add(Activation('softmax'))
+    return model
+
+def get_big_quad_cnn_cifar_model(compressed_ver=0):
+    if compressed_ver == 1:
+        return get_compressed_big_quad_cnn_cifar_model()
+    elif compressed_ver == 2:
+        return get_v2_compressed_big_quad_cnn_cifar_model()
+    model = Sequential()
+    model.add(Conv2D(32, (3, 3), padding='same',
+                    input_shape=(32,32,3)))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())
+    model.add(Dense(512))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(4))
+    model.add(Activation('softmax'))
+    return model
+
+def get_compressed_big_quad_cnn_cifar_model():
+    model = Sequential()
+    model.add(Conv2D(32, (3, 3), padding='same',
+                    input_shape=(32,32,3)))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())
+    model.add(Dense(128))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(4))
+    model.add(Activation('softmax'))
+    return model
+
+def get_v2_compressed_big_quad_cnn_cifar_model():
+    model = Sequential()
+    model.add(Conv2D(32, (3, 3), padding='same',
+                    input_shape=(32,32,3)))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
+
+    model.add(Flatten())
+    model.add(Dense(64))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(4))
     model.add(Activation('softmax'))
     return model
 

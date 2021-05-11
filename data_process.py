@@ -227,21 +227,23 @@ class StableTestDataProvider():
     """
     when size_per_label = 0, use all the data for the test set
     """
-    def __init__(self, x_test, y_test, size_per_label=0):
+    def __init__(self, x_test, y_test, size_per_label=0, rot=[0]):
         self.x_test_set_by_labels = []
         self.y_test_set_by_labels = []
-        if size_per_label != 0:
-            for l in np.unique(y_test):
-                p = np.random.permutation(size_per_label)
-                self.x_test_set_by_labels.append(x_test[y_test == l][:size_per_label][p])
-                self.y_test_set_by_labels.append(y_test[y_test == l][:size_per_label][p])
-        else:
-            unique, counts = np.unique(y_test, return_counts=True)
-            count_dict = dict(zip(unique, counts))
-            for l in np.unique(y_test):
-                p = np.random.permutation(count_dict[l])
-                self.x_test_set_by_labels.append(x_test[y_test == l][p])
-                self.y_test_set_by_labels.append(y_test[y_test == l][p])
+        for r in rot:
+            x_test_rot = np.rot90(x_test, r, (1,2))
+            if size_per_label != 0:
+                for l in np.unique(y_test):
+                    p = np.random.permutation(size_per_label)
+                    self.x_test_set_by_labels.append(x_test_rot[y_test == l][:size_per_label][p])
+                    self.y_test_set_by_labels.append(y_test[y_test == l][:size_per_label][p])
+            else:
+                unique, counts = np.unique(y_test, return_counts=True)
+                count_dict = dict(zip(unique, counts))
+                for l in np.unique(y_test):
+                    p = np.random.permutation(count_dict[l])
+                    self.x_test_set_by_labels.append(x_test_rot[y_test == l][p])
+                    self.y_test_set_by_labels.append(y_test[y_test == l][p])
 
         self.num_classes = len(np.unique(y_test))
 
@@ -254,10 +256,55 @@ class StableTestDataProvider():
             yt = np.concatenate([self.y_test_set_by_labels[i] for i in range(len(self.y_test_set_by_labels)) if i in labels])
         return xt, yt
 
+class Cifar100StableTestDataProvider():
+    """
+    when size_per_label = 0, use all the data for the test set
+    """
+    def __init__(self, x_test, y_test, size_per_label=0, task='medium_mammals-flowers'):
+        self.x_test_set_by_labels = []
+        self.y_test_set_by_labels = []
+        # load class map
+        import pickle
+        with open('../data/cifar100/meta', 'rb') as handle:
+            class_map = pickle.load(handle)
+        coarse_class_map = class_map['coarse_label_names']
+        self.labels = []
+        for class_name in task.split('-'):
+            self.labels.append(coarse_class_map.index(class_name))
+
+        if size_per_label != 0:
+            for l in self.labels:
+                p = np.random.permutation(size_per_label)
+                self.x_test_set_by_labels.append(x_test[y_test == l][:size_per_label][p])
+                self.y_test_set_by_labels.append(y_test[y_test == l][:size_per_label][p])
+        else:
+            unique, counts = np.unique(y_test, return_counts=True)
+            count_dict = dict(zip(unique, counts))
+            for l in self.labels:
+                p = np.random.permutation(count_dict[l])
+                self.x_test_set_by_labels.append(x_test[y_test == l][p])
+                self.y_test_set_by_labels.append(y_test[y_test == l][p])
+
+        self.num_classes = len(self.labels)
+
+    def fetch(self, labels, size_per_label=0):
+        if size_per_label != 0:
+            xt = np.concatenate([self.x_test_set_by_labels[i][:size_per_label] for i in range(len(self.x_test_set_by_labels))], axis=0)
+            yt = np.concatenate([self.y_test_set_by_labels[i][:size_per_label] for i in range(len(self.y_test_set_by_labels))])
+        else:
+            xt = np.concatenate([self.x_test_set_by_labels[i] for i in range(len(self.x_test_set_by_labels))], axis=0)
+            yt = np.concatenate([self.y_test_set_by_labels[i] for i in range(len(self.y_test_set_by_labels))])
+        
+        for i in range(len(self.labels)):
+            yt[yt==self.labels[i]] = i
+        
+        return xt, yt
+
 class DataProvider():
-    def __init__(self, x_train, y_train):
-        self.x_train = x_train
-        self.y_train = y_train
+    def __init__(self, x_train, y_train, rot=0):
+        self.task_num = rot
+        self.x_train =  copy.deepcopy(np.rot90(x_train, rot, (1,2)))
+        self.y_train = copy.deepcopy(y_train)
         self.total_data_size = len(self.y_train)
         self.mask_unused = np.ones(self.total_data_size, dtype=bool)
 
@@ -295,7 +342,7 @@ class DataProvider():
         
         return x_filtered, y_filtered
     
-    def peek_new(self, labels):
+    def peek(self, labels):
         p = np.random.permutation(len(self.x_train))
         self.x_train = self.x_train[p]
         self.y_train = self.y_train[p]
@@ -324,7 +371,10 @@ class DataProvider():
         
         return x_filtered, y_filtered
 
-    def peek(self, labels):
+    def peek_old(self, labels):
+        """
+        !!! warning: always return the same dataset for the same label set given
+        """
         label_mask = np.zeros(self.total_data_size, dtype=bool)
         total_output_size = 0
         for l in labels.keys():
@@ -353,6 +403,71 @@ class DataProvider():
     def get_random(self, size):
         p = np.random.permutation(len(self.x_train))
         return self.x_train[p][:size], self.y_train[p][:size]
+
+def filter_cifar100_binary(x_train, y_train, task, data_size):
+    """
+    class for generating binary classification dataset from cifar100
+    task: ex) "fox-rose"
+    """
+    # load class map
+    import pickle
+    with open('../data/cifar100/meta', 'rb') as handle:
+        class_map = pickle.load(handle)
+    fine_class_map = class_map['fine_label_names']
+    labels = []
+    for class_name in task.split('-'):
+        labels.append(fine_class_map.index(class_name))
+
+    data_provider = DataProvider(x_train, y_train)
+    label_conf = {}
+    for l in labels:
+        label_conf[l] = data_size
+    x, yo = data_provider.peek(label_conf)
+
+    yo[yo==labels[0]] = 0
+    yo[yo==labels[1]] = 1
+
+    del x_train
+    del y_train
+
+    return x, yo
+
+def filter_cifar100(x_train, y_train, task, data_size):
+    """
+    class for generating binary classification dataset from cifar100
+    task: ex) "fox-rose"
+    """
+    # load class map
+    import pickle
+    with open('../data/cifar100/meta', 'rb') as handle:
+        class_map = pickle.load(handle)
+    fine_class_map = class_map['fine_label_names']
+    labels = []
+    for big_class_name in task.split('-'):
+        labels.append(list())
+        for class_name in big_class_name.split('/'):
+            labels[-1].append(fine_class_map.index(class_name))
+
+    data_provider = DataProvider(x_train, y_train)
+    label_conf = {}
+    for ll in labels:
+        for l in ll:
+            label_conf[l] = data_size
+    x, yo = data_provider.peek(label_conf)
+
+    i = 1
+    for ll in labels:
+        for l in ll:
+            yo[yo==l] = -i
+        i += 1
+    
+    yo = -yo
+    yo -= 1
+
+    del x_train
+    del y_train
+
+    return x, yo
 
 class TrainDataProvider():
     def __init__(self, x_test, y_test, size):

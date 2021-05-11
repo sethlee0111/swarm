@@ -264,7 +264,7 @@ class Swarm():
                 print(" ----  remaining time: {}".format(rem))  
 
             K.clear_session()
-
+        return
         if self._clients[0].is_federated():
             print('start federated simulation')
             self.hist['encountered_clients'] = {}
