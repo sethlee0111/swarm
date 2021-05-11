@@ -1,0 +1,34 @@
+{
+    "dataset": "mnist",
+    "individual-label-sets": true,
+    "intervals": [100, 100, 100],
+    "repeat": 1,
+    "local-set": [0,8],
+    "goal-set": [3, 4, 6, 0, 8],
+    "label-sets": [[2,3],[3,4,5],[4,5,6]],
+    "noise-label-set-size": 2,
+    "same-repeat": true,
+    "number-of-data-points": 150,
+    "noise-percentage": 100,
+    "strategies": {
+        "local": false,
+        "greedy": true,
+        "opportunistic": true,
+        "gradient replay": true,
+        "greedy-cecay": false,
+        "opportunistic-cecay": false,
+        "gradient replay cecay": false
+    },
+    "pretrained-model": "../pretrained/test_base_2nn_mnist.pickle",
+    "hyperparams" : {
+        "orig-lr": 0.01,
+        "batch-size": 50,
+        "kappa": 7,
+        "offset": 0.96,
+        "apply-rate": 3,
+        "test-data-per-label": 800,
+        "evaluation-metrics": "loss-and-accuracy",
+        "similarity-threshold": 0.2
+    },
+    "test-data-per-label": 800
+}

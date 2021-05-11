@@ -1,0 +1,51 @@
+{
+    "dataset": "cifar100",
+    "intervals": [600],
+    "repeat": 1,
+    "local-set": [0,1,2,3],
+    "goal-set": [0,1,2,3],
+    "local-task": "fox-orchid-bee-bicycle",
+    "goal-tasks": "medium_mammals-flowers-insects-vehicles_1",
+    "task-encounters": [
+        ["porcupine/fox/possum-poppy/rose/sunflower-bee/beetle/butterfly-bicycle/bus/motorcycle"
+        ,"hamster/mouse/rabbit/shrew-maple_tree/oak_tree/palm_tree-crab/lobster/snail/spider-lawn_mower/rocket/tank"
+        ,"beaver/dolphin/otter-cloud/forest/mountain-clock/lamp/television-baby/boy/girl"]
+    ],
+    "temp": [["fox-orchid", "porcupine-poppy", "possum-rose", "raccoon-sunflower"],
+        ["bear-maple_tree", "leopard-oak_tree"],
+        ["aquarium_fish-apple", "flatfish-mushroom"]
+        ],
+    "temp2":
+        [
+            ["fox-orchid", "porcupine-poppy", "possum-rose"],
+            ["bear-maple_tree", "leopard-oak_tree", "lion-palm_tree"],
+            ["bed-bridge", "chair-castle"]
+        ],
+    "noise-label-set-size": 2,
+    "same-repeat": false,
+    "number-of-data-points": 200,
+    "noise-percentage": 100,
+    "strategies": {
+        "greedy ": false,
+        "oracle ": false,
+        "opportunistic": false,
+        "gradient replay": false,
+        "task-aware": false,
+        "compressed ": false,
+        "compressed-v2": false,
+        "task-aware GR": true
+    },
+    "pretrained-model": "../pretrained/big_quad_cnn2.pickle",
+    "hyperparams" : {
+        "orig-lr": 0.0001,
+        "batch-size": 100,
+        "kappa": 7,
+        "offset": 0.96,
+        "apply-rate": 3,
+        "test-data-per-label": 100,
+        "evaluation-metrics": "loss-and-accuracy",
+        "similarity-threshold": 0.2,
+        "task-threshold": 1.2
+    },
+    "test-data-per-label": 400
+}

@@ -1,0 +1,40 @@
+{
+    "dataset": "mnist",
+    "intervals": [1000],
+    "repeat": 1,
+    "local-set": [0,1,2,3,4,5,6,7,8,9],
+    "goal-set": [0,1,2,3,4,5,6,7,8,9],
+    "local-task": 0,
+    "goal-tasks": [0],
+    "task-encounters": [[0,1]],
+    "noise-label-set-size": 2,
+    "same-repeat": false,
+    "number-of-data-points": 100,
+    "noise-percentage": 100,
+    "strategies": {
+        "greedy ": true,
+        "oracle": true,
+        "opportunistic": false,
+        "gradient replay": false,
+        "greedy-cecay": false,
+        "opportunistic-cecay": false,
+        "gradient replay cecay": false,
+        "task-aware": true,
+        "compressed": true,
+        "compressed-v2": true,
+        "task-aware GR": true
+    },
+    "pretrained-model": "../pretrained/test_base_2nn_mnist.pickle",
+    "hyperparams" : {
+        "orig-lr": 0.01,
+        "batch-size": 50,
+        "kappa": 7,
+        "offset": 0.96,
+        "apply-rate": 3,
+        "test-data-per-label": 800,
+        "evaluation-metrics": "loss-and-accuracy",
+        "similarity-threshold": 0.2,
+        "task-threshold": 1.4
+    },
+    "test-data-per-label": 800
+}

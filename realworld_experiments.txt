@@ -1,0 +1,46 @@
+figs/realworld_mnist_graph.pdf
+    tried with max delegations = 1. Not a good result, but the scale is too small yet. 
+    deployed a much longer version of the experiment. > 12 hours expected.
+
+figs/realworld_mnist_graph_2.pdf
+    turns out that I was running mnist, not cifar. changed graph filename. 
+    greedy-no-sim still performing the best. probably because it's taking as much as it can 
+    while others only opportunistically collaborate. Still, too short an experiment to see the performance diff.
+
+figs/realworld_mnist_long.pdf
+    why does the mnist decrease? there is a difference with realworld dataset from controlled experiments that 
+    the data is the same throughout the experiment, but still, momentum performs worse than greedy and it decreases
+    which hasn't been observed in controlled experiments.
+
+figs/realworld_mnist_online.pdf
+    the clients get a fresh set of training data. momentum still performing not good. Because clients do not meet
+    randomly? How does meeting the same guy multiple times help greedy?
+
+figs/realworld_mnist_online_2.pdf
+    max delegations = 6 must have caused this dip. Also, explains why momentum performed well in the PerCom paper.
+    if max delegations = 1, then both performs better than this but greedy is better. can't figure out why...
+    change the setting to completely randomized? 
+
+figs/realworld_mnist_online_3.pdf
+    the upper one with max delegations = 1. to confirm.
+
+figs/realworld_mnist_online_4.pdf
+    tried with longer duration ("encounter_data/levy_walk_client_45_epi_10_dur_5000.pickle") to ensure more randomness
+
+figs/realworld_mnist_online_5.pdf (!)
+    "encounter_data/levy_walk_client_45_epi_500_dur_50.pickle"
+    shows good performance. but not entirely sure why this works well
+    Let's first try completely randomized experiment first.
+
+figs/cifar_new_1.pdf
+    CIFAR10 with long-epi/short-duration (levy_walk_client_45_epi_1000_dur_50.pickle). However, the momentum approach
+    just gives up in the middle. -> look into individual clients
+    does not update local data (not online)
+    HYPERPARAM: noise-label-set-size 2 (try with 3)
+
+figs/cifar_new_2.pdf
+    tried with HYPERPARAM: 3, and levy_walk_client_45_epi_500_dur_50.pickle
+
+figs/realworld_mnist_re_2.pdf
+    ..in re_1 jsd-momentum didn't perform as good. changed factor from 2 to 4.
+    maybe I should try staleness and minmax here..

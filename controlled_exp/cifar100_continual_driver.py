@@ -72,18 +72,15 @@ def main():
                                                                          SLIDING_WINDOW_STEP)
 
     elif config['dataset'] == 'cifar100':
-        model_fn = custom_models.get_bin_cnn_cifar_model
+        model_fn = custom_models.get_big_bin_cnn_cifar_model
         x_train, y_train_orig, x_test, y_test_orig = get_cifar100_dataset()
-        x_train_coarse, y_train_coarse_orig, y_test_coarse, y_test_coarse_orig = get_cifar100_dataset('coarse')
+        x_train_coarse, y_train_coarse_orig, x_test_coarse, y_test_coarse_orig = get_cifar100_dataset('coarse')
 
-    train_data_provider = dp.DataProvider(x_train, y_train_orig, config['local-task'])
-    test_data_provider = dp.Cifar100StableTestDataProvider(y_test_coarse, y_test_coarse_orig, config['test-data-per-label'], config['goal-tasks'])
+    test_data_provider = dp.Cifar100StableTestDataProvider(x_test_coarse, y_test_coarse_orig, config['test-data-per-label'], config['goal-tasks'])
 
     # get local dataset for clients
-    client_label_conf = {}
-    for l in config['local-set']:
-        client_label_conf[l] = (int) (config['number-of-data-points']/len(config['local-set']))
-    x_train_client, y_train_client = train_data_provider.peek(client_label_conf)
+    x_train_client, y_train_client = dp.filter_cifar100_binary(x_train, y_train_orig, config['local-task'], config['number-of-data-points'])
+    train_data_provider = dp.DataProvider(x_train_client, y_train_client)
 
     # get pretrained model
     with open(config['pretrained-model'], 'rb') as handle:
@@ -117,6 +114,7 @@ def main():
                             compile_config,
                             train_config,
                             hyperparams)
+            c.set_task(config['goal-tasks'])
             clients[k] = c
             i += 1
     
@@ -153,37 +151,37 @@ def main():
     except:
         repeat = 1
 
-    try:
-        same_repeat = config['same-repeat']
-    except:
-        same_repeat = False
+    # try:
+    #     same_repeat = config['same-repeat']
+    # except:
+    #     same_repeat = False
 
-    if same_repeat:
-        enc_clients = [] # list of 'other' clients our device is encountering
-        one_cycle_length = 0
-        for i in range(len(config['intervals'])):
-            one_cycle_length += config['intervals'][i]
-        for k in range(one_cycle_length):
-            label_conf = all_labels
+    # if same_repeat:
+    #     enc_clients = [] # list of 'other' clients our device is encountering
+    #     one_cycle_length = 0
+    #     for i in range(len(config['intervals'])):
+    #         one_cycle_length += config['intervals'][i]
+    #     for k in range(one_cycle_length):
+    #         label_conf = all_labels
 
-            # print(label_conf)
-            rotated_train_data_provider = dp.DataProvider(x_train, y_train_orig, config['task-encounters'][i])
-            x_other, y_other = rotated_train_data_provider.peek(label_conf)
+    #         # print(label_conf)
+    #         rotated_train_data_provider = dp.DataProvider(x_train, y_train_orig, config['task-encounters'][i])
+    #         x_other, y_other = rotated_train_data_provider.peek(label_conf)
 
-            enc_clients.append(
-                get_client_class(ck)(k,   # random id
-                                    model_fn,
-                                    opt_fn,
-                                    copy.deepcopy(pretrained_model_weight),
-                                    x_other,
-                                    y_other,
-                                    rotated_train_data_provider,
-                                    test_data_provider,
-                                    config['goal-set'],
-                                    compile_config,
-                                    train_config,
-                                    hyperparams)
-            )
+    #         enc_clients.append(
+    #             get_client_class(ck)(k,   # random id
+    #                                 model_fn,
+    #                                 opt_fn,
+    #                                 copy.deepcopy(pretrained_model_weight),
+    #                                 x_other,
+    #                                 y_other,
+    #                                 rotated_train_data_provider,
+    #                                 test_data_provider,
+    #                                 config['goal-set'],
+    #                                 compile_config,
+    #                                 train_config,
+    #                                 hyperparams)
+    #         )
 
     unique_ids = 10000
     for j in range(repeat):
@@ -194,30 +192,26 @@ def main():
                 # set labels
                 label_conf = all_labels
 
-                task_num = config['task-encounters'][i][np.random.randint(len(config['task-encounters'][i]))]
-                rotated_train_data_provider = dp.DataProvider(x_train, y_train_orig, task_num)
-                x_other, y_other = rotated_train_data_provider.peek(label_conf)
+                task = config['task-encounters'][i][np.random.randint(len(config['task-encounters'][i]))]
+                x_other, y_other = dp.filter_cifar100_binary(x_train, y_train_orig, task, config['number-of-data-points'])
+                train_data_provider = dp.DataProvider(x_other, y_other)
                 ii += 1
                 unique_ids += 1
                 for ck in clients.keys():
-                    if not same_repeat:
-                        other = get_client_class(ck)(100+task_num,   # random id
-                                                    model_fn,
-                                                    opt_fn,
-                                                    copy.deepcopy(pretrained_model_weight),
-                                                    x_other,
-                                                    y_other,
-                                                    rotated_train_data_provider,
-                                                    test_data_provider,
-                                                    config['goal-set'],
-                                                    compile_config,
-                                                    train_config,
-                                                    hyperparams)
-                        # for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
-                        clients[ck].delegate(other, 1, 1)
-                    else:
-                        # for bn in range(int(config['number-of-data-points']/config['hyperparams']['batch-size'])):
-                        clients[ck].delegate(enc_clients[ii], 1, 1)
+                    other = get_client_class(ck)(1000 + len(task),   # random id
+                                                model_fn,
+                                                opt_fn,
+                                                copy.deepcopy(pretrained_model_weight),
+                                                x_other,
+                                                y_other,
+                                                train_data_provider,
+                                                test_data_provider,
+                                                config['goal-set'],
+                                                compile_config,
+                                                train_config,
+                                                hyperparams)
+                    other.set_task(task)
+                    clients[ck].delegate(other, 1, 1)
                         
                     hist = clients[ck].eval()
                     if config['hyperparams']['evaluation-metrics'] == 'loss-and-accuracy':
